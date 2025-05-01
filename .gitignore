@@ -1,0 +1,6 @@
+.DS_Store
+/.idea
+/.build
+/.pio
+/out
+/.vscode

@@ -1,0 +1,23 @@
+{
+  "name": "ieee-802_15_4-network-host",
+  "keywords": "esp32, 802.15.4",
+  "description": "IEEE 802.15.4 Network Host",
+  "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
+  "authors":
+  {
+    "name": "Johan Böhlin"
+  },
+  "version": "1.0.0",
+  "license": "GPL-3.0-or-later",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/Johboh/ieee-802_15_4-network-host.git"
+  },
+  "build": {
+      "libLDFMode": "deep"
+  },
+  "frameworks": ["espidf"],
+  "platforms": ["espressif32"],
+  "dependencies": []
+}
