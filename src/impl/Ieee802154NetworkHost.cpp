@@ -4,14 +4,9 @@
 #include <esp_log.h>
 
 Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnApplicationMessage on_application_message)
-    : _ieee802154(
-          {
-              .channel = configuration.channel,
-              .pan_id = configuration.pan_id,
-              .handle_broadcasts = false,
-          },
-          std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
-          std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
+    : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id},
+                  std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
+                  std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
       _on_application_message(on_application_message) {}
