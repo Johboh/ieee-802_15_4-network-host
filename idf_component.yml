@@ -7,3 +7,5 @@ dependencies:
     path: ../ieee-802_15_4
   GCMEncryption:
     path: ../GCMEncryption
+  ieee-802_15_4-network-shared:
+    path: ../ieee-802_15_4-network-shared
