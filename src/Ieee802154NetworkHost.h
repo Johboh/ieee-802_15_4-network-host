@@ -4,6 +4,8 @@
 #include <Ieee802154.h>
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <set>
 #include <vector>
 
 namespace Ieee802154NetworkHostLog {
@@ -69,6 +71,48 @@ public:
    */
   uint64_t deviceMacAddress();
 
+  /**
+   * Set timestamp for a specific node.
+   * Once a timestamp is set, it will be delivered when the node ask for data, and will be delivered once until
+   * next call of setTimestamp(timestamp).
+   *
+   * @param target_address the MAC address of the node to deliver the timestamp to.
+   * @param timestamp unix timestamp in seconds, UTC.
+   */
+  void setPendingTimestamp(uint64_t target_address, uint64_t timestamp);
+
+  struct FirmwareUpdate {
+    char wifi_ssid[32];     // WiFi SSID that node should connect to.
+    char wifi_password[32]; // WiFi password that the node should connect to.
+    char url[74];           // url where to find firmware binary. Note the max URL length.
+    char md5[32];           // MD5 hash of firmware. Does not include trailing \0
+  };
+
+  /**
+   * Notify a node, when aksing for data, that there is a new firmware available.
+   *
+   * @param target_address the MAC address of the node to send firmware update information to.
+   * @param firmware_update firmware update metadata.
+   */
+  void setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update);
+  /**
+   * Notify a node, when aksing for data, that there is payload available.
+   * When the node ask for it, it will be delivered to the node.
+   *
+   * @param target_address the MAC address of the node to send payload to.
+   * @param payload the payload itself. Maximum payload size is 78 bytes.
+   */
+  void setPendingPayload(uint64_t target_address, std::vector<uint8_t> payload);
+  /**
+   * Notify a node, when aksing for data, that there is payload available.
+   * When the node ask for it, it will be delivered to the node.
+   *
+   * @param target_address the MAC address of the node to send payload to.
+   * @param payload the payload itself.
+   * @param payload_size the size of the payload. Maximum payload size is 78 bytes.
+   */
+  void setPendingPayload(uint64_t target_address, uint8_t *payload, uint8_t payload_size);
+
 private:
   void onMessage(Ieee802154::Message message);
   void onDataRequest(Ieee802154::DataRequest request);
@@ -79,4 +123,13 @@ private:
   Configuration _configuration;
   GCMEncryption _gcm_encryption;
   OnApplicationMessage _on_application_message;
+
+  // Pending states
+private:
+  // Map from MAC of node to timestmap to send for that specific node.
+  std::map<uint64_t, uint64_t> _pending_timestamp;
+  // Map from MAC of node to firmware to send for that specific node.
+  std::map<uint64_t, FirmwareUpdate> _pending_firmware_update;
+  // Map from MAC of node to payload to send for that specific node.
+  std::map<uint64_t, std::vector<uint8_t>> _pending_payload;
 };

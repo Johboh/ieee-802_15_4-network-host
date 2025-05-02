@@ -2,9 +2,11 @@
 #include <Ieee802154NetworkShared.h>
 #include <cstring>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnApplicationMessage on_application_message)
-    : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id},
+    : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id, .data_frame_retries = 100},
                   std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
@@ -36,7 +38,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
     switch (message_id) {
 
     case Ieee802154NetworkShared::MESSAGE_ID_MESSAGE: {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got MESSAGE_ID_MESSAGE");
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got ApplicationMessage");
       if (_on_application_message) {
         Ieee802154NetworkHost::ApplicationMessage application_message = {
             .host = *this,
@@ -51,7 +53,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
     }
 
     case Ieee802154NetworkShared::MESSAGE_ID_DISCOVERY_REQUEST_V1: {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got MESSAGE_ID_DISCOVERY_REQUEST_V1");
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got DiscoveryResponseV1");
       Ieee802154NetworkShared::DiscoveryResponseV1 response = {
           .channel = _configuration.channel,
       };
@@ -59,6 +61,10 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
       _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size());
       break;
     }
+
+    default:
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- Got unhandled message %d", message_id);
+      break;
     }
   }
 }
@@ -66,6 +72,108 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
 void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", request.source_address);
+  // Upon receiving data request, and we did indicate that we had data, we should wait a bit then start sending our
+  // data.
+
+  vTaskDelay(50 / portTICK_PERIOD_MS);
+
+  // Timestamp
+  auto timestamp = _pending_timestamp.find(request.source_address);
+  if (timestamp != _pending_timestamp.end()) {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got timestamp %lld to send to node", timestamp->second);
+    Ieee802154NetworkShared::PendingTimestampResponseV1 response = {
+        .timestamp = timestamp->second,
+    };
+    auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent timestamp to node");
+    }
+  }
+  _pending_timestamp.erase(request.source_address);
+
+  // Payload
+  auto payload = _pending_payload.find(request.source_address);
+  if (payload != _pending_payload.end()) {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got payload with size %d to send to node", payload->second.size());
+
+    auto wire_message_size = sizeof(Ieee802154NetworkShared::PendingPayloadResponseV1) + payload->second.size();
+    std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[wire_message_size]);
+    Ieee802154NetworkShared::PendingPayloadResponseV1 *wire_message =
+        reinterpret_cast<Ieee802154NetworkShared::PendingPayloadResponseV1 *>(buffer.get());
+    wire_message->id = Ieee802154NetworkShared::MESSAGE_ID_PENDING_PAYLOAD_RESPONSE_V1;
+    memcpy(wire_message->payload, payload->second.data(), payload->second.size());
+
+    auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent payload to node");
+    }
+  }
+  _pending_payload.erase(request.source_address);
+
+  // Firmware
+  auto firmware = _pending_firmware_update.find(request.source_address);
+  if (firmware != _pending_firmware_update.end()) {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got firmware to send to node");
+    // Need to send three packages here.
+
+    Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response;
+    strncpy(wifi_response.wifi_ssid, firmware->second.wifi_ssid, sizeof(wifi_response.wifi_ssid));
+    strncpy(wifi_response.wifi_password, firmware->second.wifi_password, sizeof(wifi_response.wifi_password));
+
+    auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to firmware wifi credentials to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware wifi credentials to node");
+    }
+
+    Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response;
+    strncpy(checksum_response.md5, firmware->second.md5, sizeof(checksum_response.md5));
+
+    encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to firmware checksum to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware checksum to node");
+    }
+
+    Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response;
+    strncpy(url_response.url, firmware->second.url, sizeof(url_response.url));
+
+    encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to firmware URL to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
+    }
+  }
+  _pending_firmware_update.erase(request.source_address);
+
+  // We are done processing this node.
+  _ieee802154.clearPending(request.source_address);
+}
+
+void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, uint64_t timestamp) {
+  _pending_timestamp[target_address] = timestamp;
+  _ieee802154.setPending(target_address);
+}
+void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update) {
+  _pending_firmware_update[target_address] = firmware_update;
+  _ieee802154.setPending(target_address);
+}
+
+void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, std::vector<uint8_t> payload) {
+  _pending_payload[target_address] = payload;
+  _ieee802154.setPending(target_address);
+}
+
+void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, uint8_t *payload, uint8_t payload_size) {
+  _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
+  _ieee802154.setPending(target_address);
 }
 
 uint64_t Ieee802154NetworkHost::deviceMacAddress() { return _ieee802154.deviceMacAddress(); }
