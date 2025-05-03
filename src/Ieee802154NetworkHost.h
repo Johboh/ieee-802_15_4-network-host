@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -90,11 +91,20 @@ public:
 
   /**
    * Notify a node, when aksing for data, that there is a new firmware available.
+   * When the node ask for it, it will be delivered to the node.
    *
    * @param target_address the MAC address of the node to send firmware update information to.
    * @param firmware_update firmware update metadata.
    */
   void setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update);
+
+  /**
+   * Get the last known firmware version reported by a node. std::nullopt if no message recived from node yet.
+   *
+   * @param node_address the MAC address of the node to check firmware version for.
+   */
+  std::optional<uint32_t> lastReportedFirmwareVersion(uint64_t node_address);
+
   /**
    * Notify a node, when aksing for data, that there is payload available.
    * When the node ask for it, it will be delivered to the node.
@@ -103,6 +113,7 @@ public:
    * @param payload the payload itself. Maximum payload size is 78 bytes.
    */
   void setPendingPayload(uint64_t target_address, std::vector<uint8_t> payload);
+
   /**
    * Notify a node, when aksing for data, that there is payload available.
    * When the node ask for it, it will be delivered to the node.
@@ -124,12 +135,19 @@ private:
   GCMEncryption _gcm_encryption;
   OnApplicationMessage _on_application_message;
 
+private:
+  // Map from MAC to last known/received firmware version for a node.
+  std::map<uint64_t, uint32_t> _last_known_firmware_version;
+
   // Pending states
 private:
+  // Keep track of pending nodes, as the OnDataRequest callback is received even if pending is not set.
+  std::set<uint64_t> _have_pending_data;
+
   // Map from MAC of node to timestmap to send for that specific node.
   std::map<uint64_t, uint64_t> _pending_timestamp;
   // Map from MAC of node to firmware to send for that specific node.
-  std::map<uint64_t, FirmwareUpdate> _pending_firmware_update;
+  std::map<uint64_t, FirmwareUpdate> _pending_firmware;
   // Map from MAC of node to payload to send for that specific node.
   std::map<uint64_t, std::vector<uint8_t>> _pending_payload;
 };

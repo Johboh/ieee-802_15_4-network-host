@@ -38,7 +38,12 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
     switch (message_id) {
 
     case Ieee802154NetworkShared::MESSAGE_ID_MESSAGE: {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got ApplicationMessage");
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got MessageV1");
+      Ieee802154NetworkShared::MessageV1 *messagev1 =
+          reinterpret_cast<Ieee802154NetworkShared::MessageV1 *>(decrypted.data());
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, "   -- Firmare version: %ld", messagev1->firmware_version);
+      _last_known_firmware_version[message.source_address] = messagev1->firmware_version;
+
       if (_on_application_message) {
         Ieee802154NetworkHost::ApplicationMessage application_message = {
             .host = *this,
@@ -72,10 +77,14 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
 void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", request.source_address);
+  if (_have_pending_data.find(request.source_address) == _have_pending_data.end()) {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- No pending bit set.");
+    return;
+  }
   // Upon receiving data request, and we did indicate that we had data, we should wait a bit then start sending our
   // data.
 
-  vTaskDelay(50 / portTICK_PERIOD_MS);
+  vTaskDelay(20 / portTICK_PERIOD_MS);
 
   // Timestamp
   auto timestamp = _pending_timestamp.find(request.source_address);
@@ -115,9 +124,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   _pending_payload.erase(request.source_address);
 
   // Firmware
-  auto firmware = _pending_firmware_update.find(request.source_address);
-  if (firmware != _pending_firmware_update.end()) {
-    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got firmware to send to node");
+  auto firmware = _pending_firmware.find(request.source_address);
+  if (firmware != _pending_firmware.end()) {
     // Need to send three packages here.
 
     Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response;
@@ -151,23 +159,36 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
     }
   }
-  _pending_firmware_update.erase(request.source_address);
+  _pending_firmware.erase(request.source_address);
 
   // We are done processing this node.
+  _have_pending_data.erase(request.source_address);
   _ieee802154.clearPending(request.source_address);
+}
+
+std::optional<uint32_t> Ieee802154NetworkHost::lastReportedFirmwareVersion(uint64_t node_address) {
+  auto firmware_version = _last_known_firmware_version.find(node_address);
+  if (firmware_version != _last_known_firmware_version.end()) {
+    return firmware_version->second;
+  }
+  return std::nullopt;
+}
+
+void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update) {
+  _pending_firmware[target_address] = firmware_update;
+  _have_pending_data.emplace(target_address);
+  _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, uint64_t timestamp) {
   _pending_timestamp[target_address] = timestamp;
-  _ieee802154.setPending(target_address);
-}
-void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update) {
-  _pending_firmware_update[target_address] = firmware_update;
+  _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, std::vector<uint8_t> payload) {
   _pending_payload[target_address] = payload;
+  _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
 }
 
