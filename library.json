@@ -23,17 +23,17 @@
     {
       "owner": "johboh",
       "name": "GCMEncryption",
-      "version": "^0.2.1"
+      "version": "^0.5.2"
     },
     {
       "owner": "johboh",
       "name": "ieee-802_15_4",
-      "version": "^0.5.3"
+      "version": "^0.5.4"
     },
     {
       "owner": "johboh",
       "name": "ieee-802_15_4-network-shared",
-      "version": "^0.6.1"
+      "version": "^0.6.2"
     }
   ]
 }
