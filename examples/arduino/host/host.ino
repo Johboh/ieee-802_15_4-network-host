@@ -18,8 +18,8 @@ struct __attribute__((packed)) ApplicationMessage {
 
 Ieee802154NetworkHost _ieee802154_host(
     {
-        .gcm_encryption_key = encryption_key,
-        .gcm_encryption_secret = encryption_secret,
+        .gcm_encryption_key = gcm_encryption_key,
+        .gcm_encryption_secret = gcm_encryption_secret,
         .channel = 26,
         .pan_id = 0x1234,
     },
