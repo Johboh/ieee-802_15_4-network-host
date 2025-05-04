@@ -6,7 +6,7 @@
 #include <freertos/task.h>
 
 Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnApplicationMessage on_application_message)
-    : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id, .data_frame_retries = 100},
+    : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id, .data_frame_retries = 50},
                   std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
@@ -58,12 +58,14 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
     }
 
     case Ieee802154NetworkShared::MESSAGE_ID_DISCOVERY_REQUEST_V1: {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got DiscoveryResponseV1");
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got DiscoveryRequestV1");
       Ieee802154NetworkShared::DiscoveryResponseV1 response = {
           .channel = _configuration.channel,
       };
       auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
+      _ieee802154.setNumberOfDataFramesRetries(1);
       _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size());
+      _ieee802154.setNumberOfDataFramesRetries(50);
       break;
     }
 
