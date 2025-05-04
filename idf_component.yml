@@ -4,5 +4,5 @@ url: https://github.com/Johboh/ieee-802_15_4-network-host
 dependencies:
   idf: ">=5.1.0"
   johboh/ieee-802_15_4: ">=0.5.3"
-  johboh/gcmencryption: ">=0.2.0"
+  johboh/gcmencryption: ">=0.2.1"
   johboh/ieee-802_15_4-network-shared: ">=0.6.1"
