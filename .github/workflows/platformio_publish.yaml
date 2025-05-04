@@ -6,7 +6,7 @@ jobs:
   build_examples_for_verification:
     uses: ./.github/workflows/platformio.yaml
     with:
-      target_path: "examples/arduino"
+      target_path: "examples/espidf/host"
 
   upload_library:
     runs-on: ubuntu-latest
@@ -15,10 +15,7 @@ jobs:
       - uses: actions/checkout@v4.1.1
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-
-      - name: ESP IDF CMake stuff
-        run: rm -rf CMakeLists.txt idf_component.yml
+          python-version: '3.12'
 
       - name: Install PlatformIO Core
         run: pip install --upgrade platformio
