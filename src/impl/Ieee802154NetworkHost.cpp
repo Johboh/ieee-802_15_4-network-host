@@ -24,6 +24,16 @@ void Ieee802154NetworkHost::start() {
   _initialized = true;
 }
 
+void Ieee802154NetworkHost::teardown() {
+  if (!_initialized) {
+    return;
+  }
+
+  _ieee802154.teardown();
+
+  _initialized = false;
+}
+
 void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Message");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", message.source_address);

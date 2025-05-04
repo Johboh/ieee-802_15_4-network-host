@@ -65,7 +65,12 @@ public:
   Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message);
 
 public:
+  /**
+   * Start to setup reciving callbacks.
+   */
   void start();
+
+  void teardown();
 
   /**
    * @brief Get the device mac address for this device. This would be the source address in the 802.15.4 frame (or the
