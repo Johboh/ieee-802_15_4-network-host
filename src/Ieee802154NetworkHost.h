@@ -20,13 +20,13 @@ public:
   static constexpr uint8_t DEFAULT_CHANNEL = 15;
   static constexpr uint16_t DEFAULT_PAN_ID = 0x9191;
 
-  struct ApplicationMessage {
+  struct NodeMessage {
     Ieee802154NetworkHost &host;
     uint64_t source_address = 0;
     std::vector<uint8_t> payload;
   };
 
-  typedef std::function<void(Ieee802154NetworkHost::ApplicationMessage application_message)> OnApplicationMessage;
+  typedef std::function<void(Ieee802154NetworkHost::NodeMessage application_message)> OnNodeMessage;
 
   struct Configuration {
     /**
@@ -59,9 +59,9 @@ public:
    * @brief Construct a new Ieee 8 0 2 1 5 4 Network Host object
    *
    * @param configuration see Configuration class.
-   * @param on_application_message callback on new application message.
+   * @param on_node_message callback on new message from a node.
    */
-  Ieee802154NetworkHost(Configuration configuration, OnApplicationMessage on_application_message);
+  Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message);
 
 public:
   void start();
@@ -133,7 +133,7 @@ private:
   bool _initialized = false;
   Configuration _configuration;
   GCMEncryption _gcm_encryption;
-  OnApplicationMessage _on_application_message;
+  OnNodeMessage _on_node_message;
 
 private:
   // Map from MAC to last known/received firmware version for a node.

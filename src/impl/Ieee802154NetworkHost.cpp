@@ -5,13 +5,13 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnApplicationMessage on_application_message)
+Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message)
     : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id, .data_frame_retries = 50},
                   std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
-      _on_application_message(on_application_message) {}
+      _on_node_message(on_node_message) {}
 
 void Ieee802154NetworkHost::start() {
   if (_initialized) {
@@ -44,15 +44,15 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, "   -- Firmare version: %ld", messagev1->firmware_version);
       _last_known_firmware_version[message.source_address] = messagev1->firmware_version;
 
-      if (_on_application_message) {
-        Ieee802154NetworkHost::ApplicationMessage application_message = {
+      if (_on_node_message) {
+        Ieee802154NetworkHost::NodeMessage node_message = {
             .host = *this,
             .source_address = message.source_address,
             .payload =
                 std::vector<uint8_t>(decrypted.begin() + sizeof(Ieee802154NetworkShared::MessageV1), decrypted.end()),
         };
 
-        _on_application_message(application_message);
+        _on_node_message(node_message);
       }
       break;
     }
