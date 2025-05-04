@@ -3,6 +3,6 @@ description: IEEE 802.15.4 Network Host.
 url: https://github.com/Johboh/ieee-802_15_4-network-host
 dependencies:
   idf: ">=5.1.0"
-  johboh/ieee-802_15_4: ">=0.5.4"
+  johboh/ieee-802_15_4: ">=0.5.5"
   johboh/gcmencryption: ">=0.5.2"
   johboh/ieee-802_15_4-network-shared: ">=0.6.2"
