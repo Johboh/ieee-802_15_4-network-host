@@ -30,7 +30,8 @@ Ieee802154NetworkHost _ieee802154_host(
     },
     [](Ieee802154NetworkHost::NodeMessage node_message) {
       ApplicationMessage *app = reinterpret_cast<ApplicationMessage *>(node_message.payload.data());
-      ESP_LOGI(LOG_TAG, "[0x%llx] Application.temperature: %f", node_message.source_address, app->temperature);
+      ESP_LOGI(LOG_TAG, "Got ApplicationMessage from [0x%llx] with firmware version %ld, temperature: %f",
+        node_message.source_address, node_message.firmware_version, app->temperature);
     });
 
 extern "C" {

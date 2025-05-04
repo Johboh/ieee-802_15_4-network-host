@@ -25,7 +25,8 @@ Ieee802154NetworkHost _ieee802154_host(
     },
     [](Ieee802154NetworkHost::NodeMessage node_message) {
       ApplicationMessage *app = reinterpret_cast<ApplicationMessage *>(node_message.payload.data());
-      sprintf(buffer, "[0x%llx] Application.temperature: %f", node_message.source_address, app->temperature);
+      sprintf(buffer, "Got ApplicationMessage from [0x%llx] with firmware version %ld, temperature: %f",
+              node_message.source_address, node_message.firmware_version, app->temperature);
       Serial.println(buffer);
     });
 

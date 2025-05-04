@@ -42,12 +42,12 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
       Ieee802154NetworkShared::MessageV1 *messagev1 =
           reinterpret_cast<Ieee802154NetworkShared::MessageV1 *>(decrypted.data());
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, "   -- Firmare version: %ld", messagev1->firmware_version);
-      _last_known_firmware_version[message.source_address] = messagev1->firmware_version;
 
       if (_on_node_message) {
         Ieee802154NetworkHost::NodeMessage node_message = {
             .host = *this,
             .source_address = message.source_address,
+            .firmware_version = messagev1->firmware_version,
             .payload =
                 std::vector<uint8_t>(decrypted.begin() + sizeof(Ieee802154NetworkShared::MessageV1), decrypted.end()),
         };
@@ -166,14 +166,6 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   // We are done processing this node.
   _have_pending_data.erase(request.source_address);
   _ieee802154.clearPending(request.source_address);
-}
-
-std::optional<uint32_t> Ieee802154NetworkHost::lastReportedFirmwareVersion(uint64_t node_address) {
-  auto firmware_version = _last_known_firmware_version.find(node_address);
-  if (firmware_version != _last_known_firmware_version.end()) {
-    return firmware_version->second;
-  }
-  return std::nullopt;
 }
 
 void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update) {

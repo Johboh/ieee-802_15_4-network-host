@@ -23,6 +23,7 @@ public:
   struct NodeMessage {
     Ieee802154NetworkHost &host;
     uint64_t source_address = 0;
+    uint32_t firmware_version = 0;
     std::vector<uint8_t> payload;
   };
 
@@ -99,13 +100,6 @@ public:
   void setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update);
 
   /**
-   * Get the last known firmware version reported by a node. std::nullopt if no message recived from node yet.
-   *
-   * @param node_address the MAC address of the node to check firmware version for.
-   */
-  std::optional<uint32_t> lastReportedFirmwareVersion(uint64_t node_address);
-
-  /**
    * Notify a node, when aksing for data, that there is payload available.
    * When the node ask for it, it will be delivered to the node.
    *
@@ -134,10 +128,6 @@ private:
   Configuration _configuration;
   GCMEncryption _gcm_encryption;
   OnNodeMessage _on_node_message;
-
-private:
-  // Map from MAC to last known/received firmware version for a node.
-  std::map<uint64_t, uint32_t> _last_known_firmware_version;
 
   // Pending states
 private:
