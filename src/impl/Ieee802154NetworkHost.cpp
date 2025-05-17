@@ -170,6 +170,10 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
     }
+
+    // After sending firmware metadata, assume node will restart and forget its sequence number.
+    // Don't block next mesage if the sequence number is the same.
+    _ieee802154.clearLastKnownSequenceNumberFor(request.source_address);
   }
   _pending_firmware.erase(request.source_address);
 
