@@ -84,9 +84,10 @@ public:
    * next call of setTimestamp(timestamp).
    *
    * @param target_address the MAC address of the node to deliver the timestamp to.
-   * @param timestamp unix timestamp in seconds, UTC.
+   * @param timestamp unix timestamp in seconds, UTC. If absent, will get the current timestamp, UTC, as time of sending
+   * the timestamp to the node. For this, the host needs to have a syncronized clock.
    */
-  void setPendingTimestamp(uint64_t target_address, uint64_t timestamp);
+  void setPendingTimestamp(uint64_t target_address, std::optional<uint64_t> timestamp = std::nullopt);
 
   struct FirmwareUpdate {
     char wifi_ssid[32];     // WiFi SSID that node should connect to.
@@ -139,10 +140,10 @@ private:
   // Keep track of pending nodes, as the OnDataRequest callback is received even if pending is not set.
   std::set<uint64_t> _have_pending_data;
 
-  // Map from MAC of node to timestmap to send for that specific node.
-  std::map<uint64_t, uint64_t> _pending_timestamp;
   // Map from MAC of node to firmware to send for that specific node.
   std::map<uint64_t, FirmwareUpdate> _pending_firmware;
   // Map from MAC of node to payload to send for that specific node.
   std::map<uint64_t, std::vector<uint8_t>> _pending_payload;
+  // Map from MAC of node to timestmap to send for that specific node.
+  std::map<uint64_t, std::optional<uint64_t>> _pending_timestamp;
 };

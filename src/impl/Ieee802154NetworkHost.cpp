@@ -99,11 +99,21 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   vTaskDelay(20 / portTICK_PERIOD_MS);
 
   // Timestamp
-  auto timestamp = _pending_timestamp.find(request.source_address);
-  if (timestamp != _pending_timestamp.end()) {
-    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got timestamp %lld to send to node", timestamp->second);
+  auto timestamp_opt = _pending_timestamp.find(request.source_address);
+  if (timestamp_opt != _pending_timestamp.end()) {
+    uint64_t timestamp = 0;
+    if (timestamp_opt->second) {
+      timestamp = timestamp_opt->second.value();
+    } else {
+      // Timestamp in UTC.
+      time_t now = time(nullptr);
+      struct tm *utc_time = gmtime(&now);
+      timestamp = static_cast<uint64_t>(mktime(utc_time));
+    }
+
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got timestamp %lld to send to node", timestamp);
     Ieee802154NetworkShared::PendingTimestampResponseV1 response = {
-        .timestamp = timestamp->second,
+        .timestamp = timestamp,
     };
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
     if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
@@ -188,7 +198,7 @@ void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, Firmware
   _ieee802154.setPending(target_address);
 }
 
-void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, uint64_t timestamp) {
+void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, std::optional<uint64_t> timestamp) {
   _pending_timestamp[target_address] = timestamp;
   _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
