@@ -19,21 +19,5 @@
   },
   "frameworks": ["espidf"],
   "platforms": ["espressif32"],
-  "dependencies": [
-    {
-      "owner": "johboh",
-      "name": "GCMEncryption",
-      "version": "^0.5.2"
-    },
-    {
-      "owner": "johboh",
-      "name": "ieee-802_15_4",
-      "version": "^0.5.6"
-    },
-    {
-      "owner": "johboh",
-      "name": "ieee-802_15_4-network-shared",
-      "version": "^0.6.2"
-    }
-  ]
+  "dependencies": []
 }

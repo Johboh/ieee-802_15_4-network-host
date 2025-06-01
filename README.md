@@ -39,10 +39,12 @@ sequenceDiagram
 ```
 
 ### Installation
-#### PlatformIO (Arduino or ESP-IDF):
-Add the following to `lib_deps`:
+#### PlatformIO using ESP-IDF framework (Arduino for PlatformIO not supported, see notes under [Compatibility](#compatibility)):
+In your existing `idf_component.yml` or in a new `idf_component.yml` in your `src` or `main` folder:
 ```
-   Johboh/ieee-802_15_4-network-host
+dependencies:
+  johboh/ieee-802_15_4-network-host:
+    version: ">=0.7.0"
 ```
 
 #### Arduino IDE:
