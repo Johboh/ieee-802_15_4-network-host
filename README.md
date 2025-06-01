@@ -1,5 +1,5 @@
 # IEEE 802.15.4 Network - Node
-[![PlatformIO CI](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/platformio.yaml/badge.svg)](https://registry.platformio.org/libraries/johboh/ieee-802_15_4-network-host)
+[![PlatformIO CI](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/platformio.yaml/badge.svg)](https://components.espressif.com/components/johboh/ieee-802_15_4-network-host)
 [![ESP-IDF CI](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/espidf.yaml/badge.svg)](https://components.espressif.com/components/johboh/ieee-802_15_4-network-host)
 [![Arduino IDE](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/arduino_cli.yaml/badge.svg)](https://downloads.arduino.cc/libraries/logs/github.com/Johboh/ieee-802_15_4-network-host/)
 [![GitHub release](https://img.shields.io/github/release/Johboh/ieee-802_15_4-network-host.svg)](https://github.com/Johboh/ieee-802_15_4-network-host/releases)
