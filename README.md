@@ -1,4 +1,4 @@
-# IEEE 802.15.4 Network - Node
+# IEEE 802.15.4 Network - Host
 [![PlatformIO CI](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/platformio.yaml/badge.svg)](https://components.espressif.com/components/johboh/ieee-802_15_4-network-host)
 [![ESP-IDF CI](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/espidf.yaml/badge.svg)](https://components.espressif.com/components/johboh/ieee-802_15_4-network-host)
 [![Arduino IDE](https://github.com/Johboh/ieee-802_15_4-network-host/actions/workflows/arduino_cli.yaml/badge.svg)](https://downloads.arduino.cc/libraries/logs/github.com/Johboh/ieee-802_15_4-network-host/)
@@ -62,8 +62,8 @@ dependencies:
 Search for `ieee-802_15_4-network-host` by `johboh` in the library manager. See note about version above.
 
 ### Examples
-- [Using Arduino IDE/CLI, sleeping node](examples/arduino/sleeping_node/sleeping_node.ino)
-- [Using ESP-IDF framework/PlatformIO, sleeping node](examples/espidf/sleeping_node/main/main.cpp)
+- [Using Arduino IDE/CLI](examples/arduino/host/host.ino)
+- [Using ESP-IDF framework/PlatformIO](examples/espidf/host/main/main.cpp)
 
 ### Compatibility
 - Currently, ESP32-C6 and ESP32-H2 are the only devices supporting 802.15.4, but more may be supported in the future.
