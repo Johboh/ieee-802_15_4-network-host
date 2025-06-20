@@ -2,6 +2,7 @@
 #include <Ieee802154NetworkShared.h>
 #include <cstring>
 #include <esp_log.h>
+#include <esp_random.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -149,10 +150,13 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   auto firmware = _pending_firmware.find(request.source_address);
   if (firmware != _pending_firmware.end()) {
     // Need to send three packages here.
+    // Set same unique identifier for all firmware packages.
+    uint32_t identifier = esp_random();
 
     Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response;
     strncpy(wifi_response.wifi_ssid, firmware->second.wifi_ssid, sizeof(wifi_response.wifi_ssid));
     strncpy(wifi_response.wifi_password, firmware->second.wifi_password, sizeof(wifi_response.wifi_password));
+    wifi_response.identifier = identifier;
 
     auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
     if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
@@ -163,6 +167,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
 
     Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response;
     strncpy(checksum_response.md5, firmware->second.md5, sizeof(checksum_response.md5));
+    checksum_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
     if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
@@ -173,6 +178,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
 
     Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response;
     strncpy(url_response.url, firmware->second.url, sizeof(url_response.url));
+    url_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
     if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
