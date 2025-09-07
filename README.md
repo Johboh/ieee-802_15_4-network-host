@@ -59,7 +59,7 @@ dependencies:
 ```
 
 #### Arduino IDE:
-Search for `ieee-802_15_4-network-host` by `johboh` in the library manager. See note about version above.
+Search for `ieee-802_15_4-network-host` by `johboh` in the library manager. See note about version above. Dependent libraries should install automatically, but if not, you also need to install `GCMEncryption`,`ieee-802_15_4` and `ieee-802_15_4-network-shared`, all by `johboh`.
 
 ### Examples
 - [Using Arduino IDE/CLI](examples/arduino/host/host.ino)
