@@ -1,4 +1,4 @@
-version: "0.1.1"
+version: "0.1.2"
 description: IEEE 802.15.4 Network Host.
 url: https://github.com/Johboh/ieee-802_15_4-network-host
 dependencies:
