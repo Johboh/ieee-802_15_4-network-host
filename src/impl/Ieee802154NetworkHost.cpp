@@ -1,5 +1,4 @@
 #include "Ieee802154NetworkHost.h"
-#include "Ota.h"
 #include <Ieee802154NetworkShared.h>
 #include <cstring>
 #include <esp_log.h>
@@ -7,14 +6,13 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
-                                             CrtBundleAttach crt_bundle_attach)
+Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message)
     : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id, .data_frame_retries = 50},
                   std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
-      _on_node_message(on_node_message), _crt_bundle_attach(crt_bundle_attach) {}
+      _on_node_message(on_node_message) {}
 
 void Ieee802154NetworkHost::start() {
   if (_initialized) {
@@ -154,107 +152,41 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     // Set same unique identifier for all firmware packages.
     uint32_t identifier = esp_random();
 
-    // Two approaches, either using WiFi or using 802.15.4. WiFi will eventually be removed.
-    if (strlen(firmware->second.wifi_ssid) > 0) {
-      // WIFI
-      // Need to send three packages here.
+    // Update via WIFI
+    // Need to send three packages here.
 
-      Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response;
-      strncpy(wifi_response.wifi_ssid, firmware->second.wifi_ssid, sizeof(wifi_response.wifi_ssid));
-      strncpy(wifi_response.wifi_password, firmware->second.wifi_password, sizeof(wifi_response.wifi_password));
-      wifi_response.identifier = identifier;
+    Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response;
+    strncpy(wifi_response.wifi_ssid, firmware->second.wifi_ssid, sizeof(wifi_response.wifi_ssid));
+    strncpy(wifi_response.wifi_password, firmware->second.wifi_password, sizeof(wifi_response.wifi_password));
+    wifi_response.identifier = identifier;
 
-      auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
-      if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
-        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware wifi credentials to node");
-      } else {
-        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware wifi credentials to node");
-      }
-
-      Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response;
-      strncpy(checksum_response.md5, firmware->second.md5, sizeof(checksum_response.md5));
-      checksum_response.identifier = identifier;
-
-      encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
-      if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
-        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware checksum to node");
-      } else {
-        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware checksum to node");
-      }
-
-      Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response;
-      strncpy(url_response.url, firmware->second.url, sizeof(url_response.url));
-      url_response.identifier = identifier;
-
-      encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
-      if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
-        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware URL to node");
-      } else {
-        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
-      }
+    auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware wifi credentials to node");
     } else {
-      // 802.15.4 OTA Update.
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware wifi credentials to node");
+    }
 
-      // Indicate firmware update with potentially slower messages ahead.
-      Ieee802154NetworkShared::PendingFirmwareResponseV1 firmware_response;
-      firmware_response.identifier = identifier;
+    Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response;
+    strncpy(checksum_response.md5, firmware->second.md5, sizeof(checksum_response.md5));
+    checksum_response.identifier = identifier;
 
-      auto encrypted = _gcm_encryption.encrypt(&firmware_response, sizeof(firmware_response));
-      if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
-        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware response to node");
-      } else {
-        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware response to node");
-      }
+    encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware checksum to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware checksum to node");
+    }
 
-      auto begin_callback = [&](const size_t size) {
-        Ieee802154NetworkShared::PendingFirmwareBeginResponseV1 begin_response;
-        begin_response.identifier = identifier;
-        begin_response.size = size;
+    Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response;
+    strncpy(url_response.url, firmware->second.url, sizeof(url_response.url));
+    url_response.identifier = identifier;
 
-        auto encrypted = _gcm_encryption.encrypt(&begin_response, sizeof(begin_response));
-        auto success = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size());
-        if (!success) {
-          ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware begin to node");
-        } else {
-          ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware begin to node");
-        }
-        return success;
-      };
-      auto data_callback = [&](const char *data, const size_t length) {
-        auto wire_message_size = sizeof(Ieee802154NetworkShared::PendingFirmwareDataResponseV1) + length;
-        std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[wire_message_size]);
-        Ieee802154NetworkShared::PendingFirmwareDataResponseV1 *wire_message =
-            reinterpret_cast<Ieee802154NetworkShared::PendingFirmwareDataResponseV1 *>(buffer.get());
-        wire_message->id = Ieee802154NetworkShared::MESSAGE_ID_PENDING_FIRMWARE_DATA_RESPONSE_V1;
-        wire_message->identifier = identifier;
-        memcpy(wire_message->payload, data, length);
-
-        auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
-        auto success = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size());
-        if (!success) {
-          ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware data to node");
-        } else {
-          ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware data to node");
-        }
-        return success;
-      };
-
-      auto max_payload_size =
-          Ieee802154NetworkShared::MAX_MESSAGE_SIZE - sizeof(Ieee802154NetworkShared::PendingFirmwareDataResponseV1);
-      Ieee802154NetworkHostUtils::Ota ota(Ieee802154NetworkHostLog::TAG, max_payload_size, _crt_bundle_attach);
-      ota.perform(firmware->second.url, firmware->second.md5, begin_callback, data_callback);
-
-      // End Message
-      Ieee802154NetworkShared::PendingFirmwareEndResponseV1 end_response;
-      end_response.identifier = identifier;
-      strncpy(end_response.md5, firmware->second.md5, sizeof(end_response.md5));
-
-      encrypted = _gcm_encryption.encrypt(&end_response, sizeof(end_response));
-      if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
-        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware end to node");
-      } else {
-        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware end to node");
-      }
+    encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware URL to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
     }
 
     // After sending firmware metadata, assume node will restart and forget its sequence number.

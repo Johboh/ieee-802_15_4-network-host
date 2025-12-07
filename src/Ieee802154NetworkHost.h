@@ -29,17 +29,6 @@ public:
 
   typedef std::function<void(Ieee802154NetworkHost::NodeMessage application_message)> OnNodeMessage;
 
-  /**
-   * @brief CRT Bundle Attach for Ardunio or ESP-IDF from MDTLS, to support TLS/HTTPS.
-   *
-   * Include esp_crt_bundle.h and pass the following when using respective framework:
-   * for Arduino: arduino_esp_crt_bundle_attach
-   * for ESP-IDF: esp_crt_bundle_attach
-   *
-   * C style function.
-   */
-  typedef esp_err_t (*CrtBundleAttach)(void *conf);
-
   struct Configuration {
     /**
      * Encyption key used for the GCM packet encryption. Must be exact 16 bytes long. \0 does not count.
@@ -72,12 +61,9 @@ public:
    *
    * @param configuration see Configuration class.
    * @param on_node_message callback on new message from a node.
-   * @param crt_bundle_attach CRT Bundle Attach for Ardunio or ESP-IDF from MDTLS, to support TLS/HTTPS. See definition
-   * of CrtBundleAttach.
    *
    */
-  Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
-                        CrtBundleAttach crt_bundle_attach = nullptr);
+  Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message);
 
 public:
   /**
@@ -105,12 +91,10 @@ public:
   void setPendingTimestamp(uint64_t target_address, std::optional<uint64_t> timestamp = std::nullopt);
 
   struct FirmwareUpdate {
-    char wifi_ssid[32] = {0}; // WiFi SSID that node should connect to. Set to empty string to perform firmware update
-                              // via 802.15.4 instead of WiFi.
-    char wifi_password[32] = {0}; // WiFi password that the node should connect to. not used if update is via 802.15.4,
-                                  // see wifi_ssid.
-    char url[74];                 // url where to find firmware binary. Note the max URL length.
-    char md5[32];                 // MD5 hash of firmware. Does not include trailing \0
+    char wifi_ssid[32];     // WiFi SSID that node should connect to.
+    char wifi_password[32]; // WiFi password that the node should connect to.
+    char url[74];           // url where to find firmware binary. Note the max URL length.
+    char md5[32];           // MD5 hash of firmware. Does not include trailing \0
   };
 
   /**
@@ -151,7 +135,6 @@ private:
   Configuration _configuration;
   GCMEncryption _gcm_encryption;
   OnNodeMessage _on_node_message;
-  CrtBundleAttach _crt_bundle_attach;
 
   // Pending states
 private:
