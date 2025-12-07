@@ -221,11 +221,15 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
         return success;
       };
       auto data_callback = [&](const char *data, const size_t length) {
-        Ieee802154NetworkShared::PendingFirmwareDataResponseV1 data_response;
-        data_response.identifier = identifier;
-        memcpy(data_response.payload, data, length);
+        auto wire_message_size = sizeof(Ieee802154NetworkShared::PendingFirmwareDataResponseV1) + length;
+        std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[wire_message_size]);
+        Ieee802154NetworkShared::PendingFirmwareDataResponseV1 *wire_message =
+            reinterpret_cast<Ieee802154NetworkShared::PendingFirmwareDataResponseV1 *>(buffer.get());
+        wire_message->id = Ieee802154NetworkShared::MESSAGE_ID_PENDING_FIRMWARE_DATA_RESPONSE_V1;
+        wire_message->identifier = identifier;
+        memcpy(wire_message->payload, data, length);
 
-        auto encrypted = _gcm_encryption.encrypt(&data_response, sizeof(data_response));
+        auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
         auto success = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size());
         if (!success) {
           ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware data to node");
