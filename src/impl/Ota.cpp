@@ -140,6 +140,8 @@ bool Ota::sendBufferAsDataMessages(DataCallback data_callback, char *buffer, siz
       return false;
     }
     bytes_sent += bytes_to_send;
+
+    vTaskDelay(0); // Yield/reschedule
   }
   return true;
 }
