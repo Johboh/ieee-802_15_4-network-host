@@ -41,8 +41,9 @@ public:
      */
     const char *gcm_encryption_secret;
     /**
-     * 802.15.4 channel to use. Value between 11 and 16, and its recommended to pick a channel that is in between the
-     * common WiFi channels. 15 is a good number. The node will disover what channel to use.
+     * 802.15.4 channel to use. Value between 11 and 26, and its recommended to pick a channel that is in between the
+     * common WiFi channels. 15 is the most safe best. Other good options are 20. 25-26 are good too, but risky
+     * compatibiltiy wise.
      */
     uint8_t channel = DEFAULT_CHANNEL;
     /**
