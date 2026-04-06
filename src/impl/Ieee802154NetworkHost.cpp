@@ -59,6 +59,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
             .host = *this,
             .source_address = message.source_address,
             .firmware_version = messagev1->firmware_version,
+            .rssi = message.rssi,
             .payload =
                 std::vector<uint8_t>(decrypted.begin() + sizeof(Ieee802154NetworkShared::MessageV1), decrypted.end()),
         };

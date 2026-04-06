@@ -24,6 +24,7 @@ public:
     Ieee802154NetworkHost &host;
     uint64_t source_address = 0;
     uint32_t firmware_version = 0;
+    int8_t rssi = 0;
     std::vector<uint8_t> payload;
   };
 
