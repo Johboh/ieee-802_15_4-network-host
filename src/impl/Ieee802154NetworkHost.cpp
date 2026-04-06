@@ -7,7 +7,10 @@
 #include <freertos/task.h>
 
 Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message)
-    : _ieee802154({.channel = configuration.channel, .pan_id = configuration.pan_id, .data_frame_retries = 50},
+    : _ieee802154({.channel = configuration.channel,
+                   .pan_id = configuration.pan_id,
+                   .data_frame_retries = 50,
+                   .tx_power = configuration.tx_power},
                   std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
