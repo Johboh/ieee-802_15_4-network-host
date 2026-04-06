@@ -146,6 +146,19 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   }
   _pending_payload.erase(request.source_address);
 
+  // Forget host
+  if (_pending_forget_host.find(request.source_address) != _pending_forget_host.end()) {
+    Ieee802154NetworkShared::ForgetHostResponseV1 response;
+    auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
+    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send forget host to node");
+    } else {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent forget host to node");
+    }
+
+    _pending_forget_host.erase(request.source_address);
+  }
+
   // Firmware
   auto firmware = _pending_firmware.find(request.source_address);
   if (firmware != _pending_firmware.end()) {
@@ -220,6 +233,13 @@ void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, std::vect
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, uint8_t *payload, uint8_t payload_size) {
   _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
+  _have_pending_data.emplace(target_address);
+  _ieee802154.setPending(target_address);
+}
+
+void Ieee802154NetworkHost::setForgetHost(uint64_t target_address) {
+  _pending_forget_host.emplace(target_address);
+  _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
 }
 

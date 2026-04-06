@@ -126,6 +126,14 @@ public:
    */
   void setPendingPayload(uint64_t target_address, uint8_t *payload, uint8_t payload_size);
 
+  /**
+   * Notify a node, when asking for data, that it should forget its host. After this, the node will restart and re-do
+   * host discovery.
+   *
+   * @param target_address the MAC address of the node that should forget its host.
+   */
+  void setForgetHost(uint64_t target_address);
+
 private:
   void onMessage(Ieee802154::Message message);
   void onDataRequest(Ieee802154::DataRequest request);
@@ -148,4 +156,6 @@ private:
   std::map<uint64_t, std::vector<uint8_t>> _pending_payload;
   // Map from MAC of node to timestmap to send for that specific node.
   std::map<uint64_t, std::optional<uint64_t>> _pending_timestamp;
+  // Set of MAC of nodes that should forget the host.
+  std::set<uint64_t> _pending_forget_host;
 };

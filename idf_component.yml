@@ -5,4 +5,4 @@ dependencies:
   idf: ">=5.1.0"
   johboh/ieee-802_15_4: ">=0.5.8"
   johboh/gcmencryption: ">=0.5.3"
-  johboh/ieee-802_15_4-network-shared: ">=0.6.6"
+  johboh/ieee-802_15_4-network-shared: ">=0.6.7"
