@@ -33,7 +33,7 @@ public:
 
   struct Configuration {
     /**
-     * Encyption key used for the GCM packet encryption. Must be exact 16 bytes long. \0 does not count.
+     * Encryption key used for the GCM packet encryption. Must be exact 16 bytes long. \0 does not count.
      *
      */
     const char *gcm_encryption_key;
@@ -45,7 +45,7 @@ public:
     /**
      * 802.15.4 channel to use. Value between 11 and 26, and its recommended to pick a channel that is in between the
      * common WiFi channels. 15 is the most safe best. Other good options are 20. 25-26 are good too, but risky
-     * compatibiltiy wise.
+     * compatibility wise.
      */
     uint8_t channel = DEFAULT_CHANNEL;
     /**
@@ -74,7 +74,7 @@ public:
 
 public:
   /**
-   * Start to setup reciving callbacks.
+   * Start to setup receiving callbacks.
    */
   bool start();
 
@@ -88,12 +88,12 @@ public:
 
   /**
    * Set timestamp for a specific node.
-   * Once a timestamp is set, it will be delivered when the node ask for data, and will be delivered once until
+   * Once a timestamp is set, it will be delivered when the node asks for data, and will be delivered once until
    * next call of setTimestamp(timestamp).
    *
    * @param target_address the MAC address of the node to deliver the timestamp to.
    * @param timestamp unix timestamp in seconds, UTC. If absent, will get the current timestamp, UTC, as time of sending
-   * the timestamp to the node. For this, the host needs to have a syncronized clock.
+   * the timestamp to the node. For this, the host needs to have a synchronized clock.
    */
   void setPendingTimestamp(uint64_t target_address, std::optional<uint64_t> timestamp = std::nullopt);
 
@@ -105,8 +105,8 @@ public:
   };
 
   /**
-   * Notify a node, when aksing for data, that there is a new firmware available.
-   * When the node ask for it, it will be delivered to the node.
+   * Notify a node, when asking for data, that there is a new firmware available.
+   * When the node asks for it, it will be delivered to the node.
    *
    * @param target_address the MAC address of the node to send firmware update information to.
    * @param firmware_update firmware update metadata.
@@ -114,8 +114,8 @@ public:
   void setPendingFirmware(uint64_t target_address, const FirmwareUpdate &firmware_update);
 
   /**
-   * Notify a node, when aksing for data, that there is payload available.
-   * When the node ask for it, it will be delivered to the node.
+   * Notify a node, when asking for data, that there is payload available.
+   * When the node asks for it, it will be delivered to the node.
    *
    * @param target_address the MAC address of the node to send payload to.
    * @param payload the payload itself. Maximum payload size is 78 bytes.
@@ -123,8 +123,8 @@ public:
   void setPendingPayload(uint64_t target_address, const std::vector<uint8_t> &payload);
 
   /**
-   * Notify a node, when aksing for data, that there is payload available.
-   * When the node ask for it, it will be delivered to the node.
+   * Notify a node, when asking for data, that there is payload available.
+   * When the node asks for it, it will be delivered to the node.
    *
    * @param target_address the MAC address of the node to send payload to.
    * @param payload the payload itself.
@@ -162,7 +162,7 @@ private:
   std::map<uint64_t, FirmwareUpdate> _pending_firmware;
   // Map from MAC of node to payload to send for that specific node.
   std::map<uint64_t, std::vector<uint8_t>> _pending_payload;
-  // Map from MAC of node to timestmap to send for that specific node.
+  // Map from MAC of node to timestamp to send for that specific node.
   std::map<uint64_t, std::optional<uint64_t>> _pending_timestamp;
   // Set of MAC of nodes that should forget the host.
   std::set<uint64_t> _pending_forget_host;

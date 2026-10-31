@@ -19,5 +19,12 @@
   },
   "frameworks": ["espidf"],
   "platforms": ["espressif32"],
+  "examples": [
+    {
+      "name": "ESP-IDF host",
+      "base": "examples/espidf/host/main",
+      "files": ["main.cpp"]
+    }
+  ],
   "dependencies": []
 }
