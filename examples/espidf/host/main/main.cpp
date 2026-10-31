@@ -1,6 +1,6 @@
 #include <Ieee802154NetworkHost.h>
+#include <cinttypes>
 #include <cstring>
-#include <driver/gpio.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -8,7 +8,7 @@
 
 #define LOG_TAG "c6-host"
 
-// Encyption key used for our own packet encryption (GCM).
+// Encryption key used for our own packet encryption (GCM).
 // The key should be the same for both the host and the node.
 const char gcm_encryption_key[] = "0123456789ABCDEF"; // Must be exact 16 bytes long. \0 does not count.
 
@@ -29,9 +29,13 @@ Ieee802154NetworkHost _ieee802154_host(
         .pan_id = 0x1234,
     },
     [](Ieee802154NetworkHost::NodeMessage node_message) {
-      ApplicationMessage *app = reinterpret_cast<ApplicationMessage *>(node_message.payload.data());
-      ESP_LOGI(LOG_TAG, "Got ApplicationMessage from [0x%llx] with firmware version %ld, temperature: %f",
-        node_message.source_address, node_message.firmware_version, app->temperature);
+      if (node_message.payload.size() < sizeof(ApplicationMessage)) {
+        ESP_LOGW(LOG_TAG, "Received message payload too small: %d bytes", node_message.payload.size());
+        return;
+      }
+      const ApplicationMessage *app = reinterpret_cast<const ApplicationMessage *>(node_message.payload.data());
+      ESP_LOGI(LOG_TAG, "Got ApplicationMessage from [0x%llx] with firmware version %" PRIu32 ", temperature: %f",
+               node_message.source_address, node_message.firmware_version, app->temperature);
     });
 
 extern "C" {
