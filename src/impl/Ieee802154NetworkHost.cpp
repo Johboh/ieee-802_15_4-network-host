@@ -17,15 +17,19 @@ Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNode
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
       _on_node_message(on_node_message) {}
 
-void Ieee802154NetworkHost::start() {
+bool Ieee802154NetworkHost::start() {
   if (_initialized) {
     ESP_LOGW(Ieee802154NetworkHostLog::TAG, "Already started");
-    return;
+    return true;
   }
 
-  _ieee802154.initialize();
+  if (!_ieee802154.initialize()) {
+    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Failed to initialize 802.15.4 radio");
+    return false;
+  }
 
   _initialized = true;
+  return true;
 }
 
 void Ieee802154NetworkHost::teardown() {
@@ -121,7 +125,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
         .timestamp = timestamp,
     };
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
-    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+        Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent timestamp to node");
@@ -142,7 +147,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     memcpy(wire_message->payload, payload->second.data(), payload->second.size());
 
     auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
-    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+        Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent payload to node");
@@ -154,7 +160,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   if (_pending_forget_host.find(request.source_address) != _pending_forget_host.end()) {
     Ieee802154NetworkShared::ForgetHostResponseV1 response;
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
-    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+        Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send forget host to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent forget host to node");
@@ -178,7 +185,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     wifi_response.identifier = identifier;
 
     auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
-    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+        Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware wifi credentials to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware wifi credentials to node");
@@ -189,7 +197,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     checksum_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
-    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+        Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware checksum to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware checksum to node");
@@ -200,7 +209,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     url_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
-    if (!_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size())) {
+    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+        Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware URL to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
@@ -217,7 +227,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   _ieee802154.clearPending(request.source_address);
 }
 
-void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update) {
+void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, const FirmwareUpdate &firmware_update) {
   _pending_firmware[target_address] = firmware_update;
   _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
@@ -229,13 +239,13 @@ void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, std::op
   _ieee802154.setPending(target_address);
 }
 
-void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, std::vector<uint8_t> payload) {
+void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const std::vector<uint8_t> &payload) {
   _pending_payload[target_address] = payload;
   _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
 }
 
-void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, uint8_t *payload, uint8_t payload_size) {
+void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const uint8_t *payload, uint8_t payload_size) {
   _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
   _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
@@ -247,4 +257,4 @@ void Ieee802154NetworkHost::setForgetHost(uint64_t target_address) {
   _ieee802154.setPending(target_address);
 }
 
-uint64_t Ieee802154NetworkHost::deviceMacAddress() { return _ieee802154.deviceMacAddress(); }
+uint64_t Ieee802154NetworkHost::deviceMacAddress() const { return _ieee802154.deviceMacAddress(); }

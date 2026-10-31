@@ -71,7 +71,7 @@ public:
   /**
    * Start to setup reciving callbacks.
    */
-  void start();
+  bool start();
 
   void teardown();
 
@@ -79,7 +79,7 @@ public:
    * @brief Get the device mac address for this device. This would be the source address in the 802.15.4 frame (or the
    * destination address for a sender).
    */
-  uint64_t deviceMacAddress();
+  uint64_t deviceMacAddress() const;
 
   /**
    * Set timestamp for a specific node.
@@ -106,7 +106,7 @@ public:
    * @param target_address the MAC address of the node to send firmware update information to.
    * @param firmware_update firmware update metadata.
    */
-  void setPendingFirmware(uint64_t target_address, FirmwareUpdate &firmware_update);
+  void setPendingFirmware(uint64_t target_address, const FirmwareUpdate &firmware_update);
 
   /**
    * Notify a node, when aksing for data, that there is payload available.
@@ -115,7 +115,7 @@ public:
    * @param target_address the MAC address of the node to send payload to.
    * @param payload the payload itself. Maximum payload size is 78 bytes.
    */
-  void setPendingPayload(uint64_t target_address, std::vector<uint8_t> payload);
+  void setPendingPayload(uint64_t target_address, const std::vector<uint8_t> &payload);
 
   /**
    * Notify a node, when aksing for data, that there is payload available.
@@ -125,7 +125,7 @@ public:
    * @param payload the payload itself.
    * @param payload_size the size of the payload. Maximum payload size is 78 bytes.
    */
-  void setPendingPayload(uint64_t target_address, uint8_t *payload, uint8_t payload_size);
+  void setPendingPayload(uint64_t target_address, const uint8_t *payload, uint8_t payload_size);
 
   /**
    * Notify a node, when asking for data, that it should forget its host. After this, the node will restart and re-do
