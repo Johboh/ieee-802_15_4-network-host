@@ -1,6 +1,10 @@
 .DS_Store
-/.idea
-/.build
-/.pio
-/out
-/.vscode
+.idea
+.build
+.pio
+out
+.vscode
+build
+sdkconfig
+dependencies.lock
+managed_components
