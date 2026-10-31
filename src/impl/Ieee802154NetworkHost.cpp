@@ -320,8 +320,7 @@ void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, std::op
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const std::vector<uint8_t> &payload) {
   if (payload.size() > 78) {
-    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes",
-             payload.size());
+    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes", payload.size());
     return;
   }
   {
@@ -338,8 +337,7 @@ void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const uin
     return;
   }
   if (payload_size > 78) {
-    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes",
-             payload_size);
+    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes", payload_size);
     return;
   }
   {
