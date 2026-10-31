@@ -1,5 +1,6 @@
 #include "Ieee802154NetworkHost.h"
 #include <Ieee802154NetworkShared.h>
+#include <cinttypes>
 #include <cstring>
 #include <esp_log.h>
 #include <esp_random.h>
@@ -50,48 +51,62 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
   auto decrypted = _gcm_encryption.decrypt(message.payload);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- decrypted size: %d", decrypted.size());
 
-  if (decrypted.size() > 0) {
-    uint8_t message_id = decrypted.data()[0];
+  if (decrypted.empty()) {
+    return;
+  }
 
-    switch (message_id) {
+  uint8_t message_id = decrypted.data()[0];
 
-    case Ieee802154NetworkShared::MESSAGE_ID_MESSAGE: {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got MessageV1");
-      Ieee802154NetworkShared::MessageV1 *messagev1 =
-          reinterpret_cast<Ieee802154NetworkShared::MessageV1 *>(decrypted.data());
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, "   -- Firmare version: %ld", messagev1->firmware_version);
+  switch (message_id) {
 
-      if (_on_node_message) {
-        Ieee802154NetworkHost::NodeMessage node_message = {
-            .host = *this,
-            .source_address = message.source_address,
-            .firmware_version = messagev1->firmware_version,
-            .rssi = message.rssi,
-            .payload =
-                std::vector<uint8_t>(decrypted.begin() + sizeof(Ieee802154NetworkShared::MessageV1), decrypted.end()),
-        };
-
-        _on_node_message(node_message);
-      }
+  case Ieee802154NetworkShared::MESSAGE_ID_MESSAGE: {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got MessageV1");
+    if (decrypted.size() < sizeof(Ieee802154NetworkShared::MessageV1)) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- Message packet too small: %d bytes", decrypted.size());
       break;
     }
+    Ieee802154NetworkShared::MessageV1 *messagev1 =
+        reinterpret_cast<Ieee802154NetworkShared::MessageV1 *>(decrypted.data());
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, "   -- Firmware version: %" PRIu32, messagev1->firmware_version);
 
-    case Ieee802154NetworkShared::MESSAGE_ID_DISCOVERY_REQUEST_V1: {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got DiscoveryRequestV1");
-      Ieee802154NetworkShared::DiscoveryResponseV1 response = {
-          .channel = _configuration.channel,
+    if (_on_node_message) {
+      Ieee802154NetworkHost::NodeMessage node_message = {
+          .host = *this,
+          .source_address = message.source_address,
+          .firmware_version = messagev1->firmware_version,
+          .rssi = message.rssi,
+          .payload =
+              std::vector<uint8_t>(decrypted.begin() + sizeof(Ieee802154NetworkShared::MessageV1), decrypted.end()),
       };
-      auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
-      _ieee802154.setNumberOfDataFramesRetries(1);
-      _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size());
-      _ieee802154.setNumberOfDataFramesRetries(50);
-      break;
-    }
 
-    default:
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- Got unhandled message %d", message_id);
+      _on_node_message(node_message);
+    }
+    break;
+  }
+
+  case Ieee802154NetworkShared::MESSAGE_ID_DISCOVERY_REQUEST_V1: {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- Got DiscoveryRequestV1");
+    if (decrypted.size() < sizeof(Ieee802154NetworkShared::DiscoveryRequestV1)) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- Discovery request packet too small: %d bytes", decrypted.size());
       break;
     }
+    Ieee802154NetworkShared::DiscoveryResponseV1 response = {
+        .channel = _configuration.channel,
+    };
+    auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
+    if (encrypted.empty()) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- Failed to encrypt discovery response");
+      break;
+    }
+    _ieee802154.setNumberOfDataFramesRetries(1);
+    _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size());
+    _ieee802154.setNumberOfDataFramesRetries(50);
+    break;
+  }
+
+  default:
+    ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- Got unhandled message %d", message_id);
+    break;
   }
 }
 
@@ -125,8 +140,10 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
         .timestamp = timestamp,
     };
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
-    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-        Ieee802154::TransmitResult::Failure) {
+    if (encrypted.empty()) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt timestamp");
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+               Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent timestamp to node");
@@ -141,17 +158,25 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
 
     auto wire_message_size = sizeof(Ieee802154NetworkShared::PendingPayloadResponseV1) + payload->second.size();
     std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[wire_message_size]);
-    Ieee802154NetworkShared::PendingPayloadResponseV1 *wire_message =
-        reinterpret_cast<Ieee802154NetworkShared::PendingPayloadResponseV1 *>(buffer.get());
-    wire_message->id = Ieee802154NetworkShared::MESSAGE_ID_PENDING_PAYLOAD_RESPONSE_V1;
-    memcpy(wire_message->payload, payload->second.data(), payload->second.size());
-
-    auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
-    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-        Ieee802154::TransmitResult::Failure) {
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
+    if (!buffer) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to allocate memory for payload response");
     } else {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent payload to node");
+      Ieee802154NetworkShared::PendingPayloadResponseV1 *wire_message =
+          reinterpret_cast<Ieee802154NetworkShared::PendingPayloadResponseV1 *>(buffer.get());
+      wire_message->id = Ieee802154NetworkShared::MESSAGE_ID_PENDING_PAYLOAD_RESPONSE_V1;
+      if (!payload->second.empty()) {
+        memcpy(wire_message->payload, payload->second.data(), payload->second.size());
+      }
+
+      auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
+      if (encrypted.empty()) {
+        ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt payload");
+      } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+                 Ieee802154::TransmitResult::Failure) {
+        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send payload to node");
+      } else {
+        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent payload to node");
+      }
     }
   }
   _pending_payload.erase(request.source_address);
@@ -160,8 +185,10 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   if (_pending_forget_host.find(request.source_address) != _pending_forget_host.end()) {
     Ieee802154NetworkShared::ForgetHostResponseV1 response;
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
-    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-        Ieee802154::TransmitResult::Failure) {
+    if (encrypted.empty()) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt forget host response");
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+               Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send forget host to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent forget host to node");
@@ -179,38 +206,44 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     // Update via WIFI
     // Need to send three packages here.
 
-    Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response;
+    Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response = {};
     strncpy(wifi_response.wifi_ssid, firmware->second.wifi_ssid, sizeof(wifi_response.wifi_ssid));
     strncpy(wifi_response.wifi_password, firmware->second.wifi_password, sizeof(wifi_response.wifi_password));
     wifi_response.identifier = identifier;
 
     auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
-    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-        Ieee802154::TransmitResult::Failure) {
+    if (encrypted.empty()) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware wifi credentials");
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+               Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware wifi credentials to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware wifi credentials to node");
     }
 
-    Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response;
+    Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response = {};
     strncpy(checksum_response.md5, firmware->second.md5, sizeof(checksum_response.md5));
     checksum_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
-    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-        Ieee802154::TransmitResult::Failure) {
+    if (encrypted.empty()) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware checksum");
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+               Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware checksum to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware checksum to node");
     }
 
-    Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response;
+    Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response = {};
     strncpy(url_response.url, firmware->second.url, sizeof(url_response.url));
     url_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
-    if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-        Ieee802154::TransmitResult::Failure) {
+    if (encrypted.empty()) {
+      ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware URL");
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
+               Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware URL to node");
     } else {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
@@ -240,12 +273,26 @@ void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, std::op
 }
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const std::vector<uint8_t> &payload) {
+  if (payload.size() > 78) {
+    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes",
+             payload.size());
+    return;
+  }
   _pending_payload[target_address] = payload;
   _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const uint8_t *payload, uint8_t payload_size) {
+  if (payload_size > 0 && payload == nullptr) {
+    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload buffer is null with non-zero size");
+    return;
+  }
+  if (payload_size > 78) {
+    ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes",
+             payload_size);
+    return;
+  }
   _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
   _have_pending_data.emplace(target_address);
   _ieee802154.setPending(target_address);
