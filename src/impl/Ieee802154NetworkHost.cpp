@@ -18,6 +18,8 @@ Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNode
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
       _on_node_message(on_node_message) {}
 
+Ieee802154NetworkHost::~Ieee802154NetworkHost() { teardown(); }
+
 bool Ieee802154NetworkHost::start() {
   if (_initialized) {
     ESP_LOGW(Ieee802154NetworkHostLog::TAG, "Already started");
@@ -39,6 +41,15 @@ void Ieee802154NetworkHost::teardown() {
   }
 
   _ieee802154.teardown();
+
+  {
+    std::scoped_lock lock(_pending_mutex);
+    _have_pending_data.clear();
+    _pending_firmware.clear();
+    _pending_payload.clear();
+    _pending_timestamp.clear();
+    _pending_forget_host.clear();
+  }
 
   _initialized = false;
 }
@@ -113,21 +124,55 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
 void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", request.source_address);
-  if (_have_pending_data.find(request.source_address) == _have_pending_data.end()) {
-    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- No pending bit set.");
-    return;
+
+  std::optional<std::optional<uint64_t>> timestamp_to_send;
+  std::optional<std::vector<uint8_t>> payload_to_send;
+  bool forget_host_to_send = false;
+  std::optional<FirmwareUpdate> firmware_to_send;
+
+  {
+    std::scoped_lock lock(_pending_mutex);
+    if (_have_pending_data.find(request.source_address) == _have_pending_data.end()) {
+      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- No pending bit set.");
+      return;
+    }
+
+    auto timestamp_opt = _pending_timestamp.find(request.source_address);
+    if (timestamp_opt != _pending_timestamp.end()) {
+      timestamp_to_send = timestamp_opt->second;
+      _pending_timestamp.erase(timestamp_opt);
+    }
+
+    auto payload = _pending_payload.find(request.source_address);
+    if (payload != _pending_payload.end()) {
+      payload_to_send = std::move(payload->second);
+      _pending_payload.erase(payload);
+    }
+
+    auto forget_it = _pending_forget_host.find(request.source_address);
+    if (forget_it != _pending_forget_host.end()) {
+      forget_host_to_send = true;
+      _pending_forget_host.erase(forget_it);
+    }
+
+    auto firmware = _pending_firmware.find(request.source_address);
+    if (firmware != _pending_firmware.end()) {
+      firmware_to_send = firmware->second;
+      _pending_firmware.erase(firmware);
+    }
+
+    _have_pending_data.erase(request.source_address);
   }
+
   // Upon receiving data request, and we did indicate that we had data, we should wait a bit then start sending our
   // data.
-
   vTaskDelay(20 / portTICK_PERIOD_MS);
 
   // Timestamp
-  auto timestamp_opt = _pending_timestamp.find(request.source_address);
-  if (timestamp_opt != _pending_timestamp.end()) {
+  if (timestamp_to_send.has_value()) {
     uint64_t timestamp = 0;
-    if (timestamp_opt->second) {
-      timestamp = timestamp_opt->second.value();
+    if (timestamp_to_send.value()) {
+      timestamp = timestamp_to_send.value().value();
     } else {
       // Timestamp in UTC.
       time_t now = time(nullptr);
@@ -149,14 +194,12 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent timestamp to node");
     }
   }
-  _pending_timestamp.erase(request.source_address);
 
   // Payload
-  auto payload = _pending_payload.find(request.source_address);
-  if (payload != _pending_payload.end()) {
-    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got payload with size %d to send to node", payload->second.size());
+  if (payload_to_send.has_value()) {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- got payload with size %d to send to node", payload_to_send->size());
 
-    auto wire_message_size = sizeof(Ieee802154NetworkShared::PendingPayloadResponseV1) + payload->second.size();
+    auto wire_message_size = sizeof(Ieee802154NetworkShared::PendingPayloadResponseV1) + payload_to_send->size();
     std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[wire_message_size]);
     if (!buffer) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to allocate memory for payload response");
@@ -164,8 +207,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       Ieee802154NetworkShared::PendingPayloadResponseV1 *wire_message =
           reinterpret_cast<Ieee802154NetworkShared::PendingPayloadResponseV1 *>(buffer.get());
       wire_message->id = Ieee802154NetworkShared::MESSAGE_ID_PENDING_PAYLOAD_RESPONSE_V1;
-      if (!payload->second.empty()) {
-        memcpy(wire_message->payload, payload->second.data(), payload->second.size());
+      if (!payload_to_send->empty()) {
+        memcpy(wire_message->payload, payload_to_send->data(), payload_to_send->size());
       }
 
       auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
@@ -179,10 +222,9 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       }
     }
   }
-  _pending_payload.erase(request.source_address);
 
   // Forget host
-  if (_pending_forget_host.find(request.source_address) != _pending_forget_host.end()) {
+  if (forget_host_to_send) {
     Ieee802154NetworkShared::ForgetHostResponseV1 response;
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
     if (encrypted.empty()) {
@@ -194,12 +236,12 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent forget host to node");
     }
 
-    _pending_forget_host.erase(request.source_address);
+    // Node will restart and reset its sequence number
+    _ieee802154.clearLastKnownSequenceNumberFor(request.source_address);
   }
 
   // Firmware
-  auto firmware = _pending_firmware.find(request.source_address);
-  if (firmware != _pending_firmware.end()) {
+  if (firmware_to_send.has_value()) {
     // Set same unique identifier for all firmware packages.
     uint32_t identifier = esp_random();
 
@@ -207,8 +249,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     // Need to send three packages here.
 
     Ieee802154NetworkShared::PendingFirmwareWifiCredentialsResponseV1 wifi_response = {};
-    strncpy(wifi_response.wifi_ssid, firmware->second.wifi_ssid, sizeof(wifi_response.wifi_ssid));
-    strncpy(wifi_response.wifi_password, firmware->second.wifi_password, sizeof(wifi_response.wifi_password));
+    strncpy(wifi_response.wifi_ssid, firmware_to_send->wifi_ssid, sizeof(wifi_response.wifi_ssid));
+    strncpy(wifi_response.wifi_password, firmware_to_send->wifi_password, sizeof(wifi_response.wifi_password));
     wifi_response.identifier = identifier;
 
     auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
@@ -222,7 +264,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     }
 
     Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response = {};
-    strncpy(checksum_response.md5, firmware->second.md5, sizeof(checksum_response.md5));
+    strncpy(checksum_response.md5, firmware_to_send->md5, sizeof(checksum_response.md5));
     checksum_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
@@ -236,7 +278,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     }
 
     Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response = {};
-    strncpy(url_response.url, firmware->second.url, sizeof(url_response.url));
+    strncpy(url_response.url, firmware_to_send->url, sizeof(url_response.url));
     url_response.identifier = identifier;
 
     encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
@@ -250,25 +292,29 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     }
 
     // After sending firmware metadata, assume node will restart and forget its sequence number.
-    // Don't block next mesage if the sequence number is the same.
+    // Don't block next message if the sequence number is the same.
     _ieee802154.clearLastKnownSequenceNumberFor(request.source_address);
   }
-  _pending_firmware.erase(request.source_address);
 
   // We are done processing this node.
-  _have_pending_data.erase(request.source_address);
   _ieee802154.clearPending(request.source_address);
 }
 
 void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, const FirmwareUpdate &firmware_update) {
-  _pending_firmware[target_address] = firmware_update;
-  _have_pending_data.emplace(target_address);
+  {
+    std::scoped_lock lock(_pending_mutex);
+    _pending_firmware[target_address] = firmware_update;
+    _have_pending_data.emplace(target_address);
+  }
   _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, std::optional<uint64_t> timestamp) {
-  _pending_timestamp[target_address] = timestamp;
-  _have_pending_data.emplace(target_address);
+  {
+    std::scoped_lock lock(_pending_mutex);
+    _pending_timestamp[target_address] = timestamp;
+    _have_pending_data.emplace(target_address);
+  }
   _ieee802154.setPending(target_address);
 }
 
@@ -278,8 +324,11 @@ void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const std
              payload.size());
     return;
   }
-  _pending_payload[target_address] = payload;
-  _have_pending_data.emplace(target_address);
+  {
+    std::scoped_lock lock(_pending_mutex);
+    _pending_payload[target_address] = payload;
+    _have_pending_data.emplace(target_address);
+  }
   _ieee802154.setPending(target_address);
 }
 
@@ -293,14 +342,20 @@ void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const uin
              payload_size);
     return;
   }
-  _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
-  _have_pending_data.emplace(target_address);
+  {
+    std::scoped_lock lock(_pending_mutex);
+    _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
+    _have_pending_data.emplace(target_address);
+  }
   _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setForgetHost(uint64_t target_address) {
-  _pending_forget_host.emplace(target_address);
-  _have_pending_data.emplace(target_address);
+  {
+    std::scoped_lock lock(_pending_mutex);
+    _pending_forget_host.emplace(target_address);
+    _have_pending_data.emplace(target_address);
+  }
   _ieee802154.setPending(target_address);
 }
 

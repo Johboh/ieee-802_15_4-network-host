@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <vector>
@@ -66,6 +67,10 @@ public:
    *
    */
   Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message);
+  ~Ieee802154NetworkHost();
+
+  Ieee802154NetworkHost(const Ieee802154NetworkHost &) = delete;
+  Ieee802154NetworkHost &operator=(const Ieee802154NetworkHost &) = delete;
 
 public:
   /**
@@ -148,6 +153,8 @@ private:
 
   // Pending states
 private:
+  std::mutex _pending_mutex;
+
   // Keep track of pending nodes, as the OnDataRequest callback is received even if pending is not set.
   std::set<uint64_t> _have_pending_data;
 
