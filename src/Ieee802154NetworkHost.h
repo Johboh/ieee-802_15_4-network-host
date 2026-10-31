@@ -57,6 +57,12 @@ public:
      * Unknown allowed range.
      */
     int8_t tx_power = 20;
+    /**
+     * @brief Support legacy pre-1.0.0 nodes that transmitted wire MAC addresses in big-endian order.
+     * When true, the host automatically detects legacy nodes, translates their addresses to canonical MACs,
+     * and dual-registers hardware pending bits so old nodes can receive payloads and OTA firmware updates.
+     */
+    bool support_legacy_nodes = true;
   };
 
   /**
@@ -143,6 +149,15 @@ public:
 private:
   void onMessage(Ieee802154::Message message);
   void onDataRequest(Ieee802154::DataRequest request);
+
+  static bool isLegacyNodeMac(uint64_t mac) { return ((mac >> 24) & 0xFFFF) == 0xFEFF; }
+
+  uint64_t normalizeNodeMac(uint64_t mac) const {
+    if (_configuration.support_legacy_nodes && isLegacyNodeMac(mac)) {
+      return __builtin_bswap64(mac);
+    }
+    return mac;
+  }
 
 private:
   Ieee802154 _ieee802154;
