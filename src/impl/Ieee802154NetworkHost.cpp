@@ -7,7 +7,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message)
+Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
+                                             OnNodeDataRequest on_node_data_request)
     : _ieee802154({.channel = configuration.channel,
                    .pan_id = configuration.pan_id,
                    .data_frame_retries = 50,
@@ -16,7 +17,8 @@ Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNode
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
-      _on_node_message(on_node_message) {}
+      _on_node_message(on_node_message),
+      _on_node_data_request(on_node_data_request) {}
 
 Ieee802154NetworkHost::~Ieee802154NetworkHost() { teardown(); }
 
@@ -138,6 +140,13 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx%s", source_address,
            (source_address != request.source_address) ? " (normalized from legacy format)" : "");
+
+  if (_on_node_data_request) {
+    _on_node_data_request({
+        .host = *this,
+        .source_address = source_address,
+    });
+  }
 
   std::optional<std::optional<uint64_t>> timestamp_to_send;
   std::optional<std::vector<uint8_t>> payload_to_send;

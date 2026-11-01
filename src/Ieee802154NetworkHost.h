@@ -31,6 +31,13 @@ public:
 
   typedef std::function<void(Ieee802154NetworkHost::NodeMessage application_message)> OnNodeMessage;
 
+  struct NodeDataRequest {
+    Ieee802154NetworkHost &host;
+    uint64_t source_address = 0;
+  };
+
+  typedef std::function<void(Ieee802154NetworkHost::NodeDataRequest data_request)> OnNodeDataRequest;
+
   struct Configuration {
     /**
      * Encryption key used for the GCM packet encryption. Must be exact 16 bytes long. \0 does not count.
@@ -70,9 +77,11 @@ public:
    *
    * @param configuration see Configuration class.
    * @param on_node_message callback on new message from a node.
+   * @param on_node_data_request optional callback when a data request is received from a node.
    *
    */
-  Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message);
+  Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
+                        OnNodeDataRequest on_node_data_request = {});
   ~Ieee802154NetworkHost();
 
   Ieee802154NetworkHost(const Ieee802154NetworkHost &) = delete;
@@ -172,6 +181,7 @@ private:
   Configuration _configuration;
   GCMEncryption _gcm_encryption;
   OnNodeMessage _on_node_message;
+  OnNodeDataRequest _on_node_data_request;
 
   // Pending states
 private:
