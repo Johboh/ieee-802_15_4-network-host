@@ -50,26 +50,14 @@ void Ieee802154NetworkHost::teardown() {
     _pending_payload.clear();
     _pending_timestamp.clear();
     _pending_forget_host.clear();
-    _legacy_node_addresses.clear();
   }
 
   _initialized = false;
 }
 
 void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
-  auto source_address = normalizeNodeMac(message.source_address);
-  bool is_legacy = _configuration.support_legacy_nodes && (source_address != message.source_address);
-  {
-    std::scoped_lock lock(_pending_mutex);
-    if (is_legacy) {
-      _legacy_node_addresses.insert(source_address);
-    } else if (_configuration.support_legacy_nodes) {
-      _legacy_node_addresses.erase(source_address);
-    }
-  }
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Message");
-  ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx%s", source_address,
-           (source_address != message.source_address) ? " (normalized from legacy format)" : "");
+  ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", message.source_address);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- destination MAC: 0x%llx", message.destination_address);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- wire payload size: %d", message.payload_size);
   auto decrypted = _gcm_encryption.decrypt(message.payload);
@@ -96,7 +84,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
     if (_on_node_message) {
       Ieee802154NetworkHost::NodeMessage node_message = {
           .host = *this,
-          .source_address = source_address,
+          .source_address = message.source_address,
           .firmware_version = messagev1->firmware_version,
           .rssi = message.rssi,
           .payload =
@@ -123,7 +111,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
       break;
     }
     _ieee802154.setNumberOfDataFramesRetries(1);
-    _ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy);
+    _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size());
     _ieee802154.setNumberOfDataFramesRetries(50);
     break;
   }
@@ -135,15 +123,13 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
 }
 
 void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
-  auto source_address = normalizeNodeMac(request.source_address);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
-  ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx%s", source_address,
-           (source_address != request.source_address) ? " (normalized from legacy format)" : "");
+  ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", request.source_address);
 
   if (_on_node_data_request) {
     _on_node_data_request({
         .host = *this,
-        .source_address = source_address,
+        .source_address = request.source_address,
     });
   }
 
@@ -152,48 +138,38 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   bool forget_host_to_send = false;
   std::optional<FirmwareUpdate> firmware_to_send;
 
-  bool is_legacy = false;
   {
     std::scoped_lock lock(_pending_mutex);
-    if (_configuration.support_legacy_nodes) {
-      if (source_address != request.source_address) {
-        _legacy_node_addresses.insert(source_address);
-        is_legacy = true;
-      } else {
-        is_legacy = (_legacy_node_addresses.count(source_address) > 0);
-      }
-    }
-
-    if (_have_pending_data.find(source_address) == _have_pending_data.end()) {
+    if (_have_pending_data.find(request.source_address) == _have_pending_data.end()) {
       ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- No pending bit set.");
       return;
     }
 
-    auto timestamp_opt = _pending_timestamp.find(source_address);
+    auto timestamp_opt = _pending_timestamp.find(request.source_address);
     if (timestamp_opt != _pending_timestamp.end()) {
       timestamp_to_send = timestamp_opt->second;
       _pending_timestamp.erase(timestamp_opt);
     }
 
-    auto payload = _pending_payload.find(source_address);
+    auto payload = _pending_payload.find(request.source_address);
     if (payload != _pending_payload.end()) {
       payload_to_send = std::move(payload->second);
       _pending_payload.erase(payload);
     }
 
-    auto forget_it = _pending_forget_host.find(source_address);
+    auto forget_it = _pending_forget_host.find(request.source_address);
     if (forget_it != _pending_forget_host.end()) {
       forget_host_to_send = true;
       _pending_forget_host.erase(forget_it);
     }
 
-    auto firmware = _pending_firmware.find(source_address);
+    auto firmware = _pending_firmware.find(request.source_address);
     if (firmware != _pending_firmware.end()) {
       firmware_to_send = firmware->second;
       _pending_firmware.erase(firmware);
     }
 
-    _have_pending_data.erase(source_address);
+    _have_pending_data.erase(request.source_address);
   }
 
   // Upon receiving data request, and we did indicate that we had data, we should wait a bit then start sending our
@@ -219,7 +195,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt timestamp");
-    } else if (_ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy) ==
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
                Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
     } else {
@@ -246,7 +222,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
       if (encrypted.empty()) {
         ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt payload");
-      } else if (_ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy) ==
+      } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
                  Ieee802154::TransmitResult::Failure) {
         ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send payload to node");
       } else {
@@ -261,7 +237,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt forget host response");
-    } else if (_ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy) ==
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
                Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send forget host to node");
     } else {
@@ -269,10 +245,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     }
 
     // Node will restart and reset its sequence number
-    _ieee802154.clearLastKnownSequenceNumberFor(source_address);
-    if (_configuration.support_legacy_nodes) {
-      _ieee802154.clearLastKnownSequenceNumberFor(__builtin_bswap64(source_address));
-    }
+    _ieee802154.clearLastKnownSequenceNumberFor(request.source_address);
   }
 
   // Firmware
@@ -291,7 +264,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware wifi credentials");
-    } else if (_ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy) ==
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
                Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware wifi credentials to node");
     } else {
@@ -305,7 +278,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware checksum");
-    } else if (_ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy) ==
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
                Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware checksum to node");
     } else {
@@ -319,7 +292,7 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware URL");
-    } else if (_ieee802154.transmit(source_address, encrypted.data(), encrypted.size(), is_legacy) ==
+    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
                Ieee802154::TransmitResult::Failure) {
       ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware URL to node");
     } else {
@@ -328,43 +301,29 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
 
     // After sending firmware metadata, assume node will restart and forget its sequence number.
     // Don't block next message if the sequence number is the same.
-    _ieee802154.clearLastKnownSequenceNumberFor(source_address);
-    if (_configuration.support_legacy_nodes) {
-      _ieee802154.clearLastKnownSequenceNumberFor(__builtin_bswap64(source_address));
-    }
+    _ieee802154.clearLastKnownSequenceNumberFor(request.source_address);
   }
 
   // We are done processing this node.
-  _ieee802154.clearPending(source_address);
-  if (_configuration.support_legacy_nodes) {
-    _ieee802154.clearPending(__builtin_bswap64(source_address));
-  }
+  _ieee802154.clearPending(request.source_address);
 }
 
 void Ieee802154NetworkHost::setPendingFirmware(uint64_t target_address, const FirmwareUpdate &firmware_update) {
-  auto canonical_address = normalizeNodeMac(target_address);
   {
     std::scoped_lock lock(_pending_mutex);
-    _pending_firmware[canonical_address] = firmware_update;
-    _have_pending_data.emplace(canonical_address);
+    _pending_firmware[target_address] = firmware_update;
+    _have_pending_data.emplace(target_address);
   }
-  _ieee802154.setPending(canonical_address);
-  if (_configuration.support_legacy_nodes) {
-    _ieee802154.setPending(__builtin_bswap64(canonical_address));
-  }
+  _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingTimestamp(uint64_t target_address, std::optional<uint64_t> timestamp) {
-  auto canonical_address = normalizeNodeMac(target_address);
   {
     std::scoped_lock lock(_pending_mutex);
-    _pending_timestamp[canonical_address] = timestamp;
-    _have_pending_data.emplace(canonical_address);
+    _pending_timestamp[target_address] = timestamp;
+    _have_pending_data.emplace(target_address);
   }
-  _ieee802154.setPending(canonical_address);
-  if (_configuration.support_legacy_nodes) {
-    _ieee802154.setPending(__builtin_bswap64(canonical_address));
-  }
+  _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const std::vector<uint8_t> &payload) {
@@ -372,16 +331,12 @@ void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const std
     ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes", payload.size());
     return;
   }
-  auto canonical_address = normalizeNodeMac(target_address);
   {
     std::scoped_lock lock(_pending_mutex);
-    _pending_payload[canonical_address] = payload;
-    _have_pending_data.emplace(canonical_address);
+    _pending_payload[target_address] = payload;
+    _have_pending_data.emplace(target_address);
   }
-  _ieee802154.setPending(canonical_address);
-  if (_configuration.support_legacy_nodes) {
-    _ieee802154.setPending(__builtin_bswap64(canonical_address));
-  }
+  _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const uint8_t *payload, uint8_t payload_size) {
@@ -393,29 +348,21 @@ void Ieee802154NetworkHost::setPendingPayload(uint64_t target_address, const uin
     ESP_LOGE(Ieee802154NetworkHostLog::TAG, "Payload size %d exceeds maximum allowed size of 78 bytes", payload_size);
     return;
   }
-  auto canonical_address = normalizeNodeMac(target_address);
   {
     std::scoped_lock lock(_pending_mutex);
-    _pending_payload[canonical_address] = std::vector<uint8_t>(payload, payload + payload_size);
-    _have_pending_data.emplace(canonical_address);
+    _pending_payload[target_address] = std::vector<uint8_t>(payload, payload + payload_size);
+    _have_pending_data.emplace(target_address);
   }
-  _ieee802154.setPending(canonical_address);
-  if (_configuration.support_legacy_nodes) {
-    _ieee802154.setPending(__builtin_bswap64(canonical_address));
-  }
+  _ieee802154.setPending(target_address);
 }
 
 void Ieee802154NetworkHost::setForgetHost(uint64_t target_address) {
-  auto canonical_address = normalizeNodeMac(target_address);
   {
     std::scoped_lock lock(_pending_mutex);
-    _pending_forget_host.emplace(canonical_address);
-    _have_pending_data.emplace(canonical_address);
+    _pending_forget_host.emplace(target_address);
+    _have_pending_data.emplace(target_address);
   }
-  _ieee802154.setPending(canonical_address);
-  if (_configuration.support_legacy_nodes) {
-    _ieee802154.setPending(__builtin_bswap64(canonical_address));
-  }
+  _ieee802154.setPending(target_address);
 }
 
 uint64_t Ieee802154NetworkHost::deviceMacAddress() const { return _ieee802154.deviceMacAddress(); }

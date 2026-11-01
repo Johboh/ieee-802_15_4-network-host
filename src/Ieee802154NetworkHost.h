@@ -64,12 +64,6 @@ public:
      * Unknown allowed range.
      */
     int8_t tx_power = 20;
-    /**
-     * @brief Support legacy pre-1.0.0 nodes that transmitted wire MAC addresses in big-endian order.
-     * When true, the host automatically detects legacy nodes, translates their addresses to canonical MACs,
-     * and dual-registers hardware pending bits so old nodes can receive payloads and OTA firmware updates.
-     */
-    bool support_legacy_nodes = true;
   };
 
   /**
@@ -159,22 +153,6 @@ private:
   void onMessage(Ieee802154::Message message);
   void onDataRequest(Ieee802154::DataRequest request);
 
-  static bool isLegacyNodeMac(uint64_t mac) { return ((mac >> 24) & 0xFFFF) == 0xFEFF; }
-
-  uint64_t normalizeNodeMac(uint64_t mac) const {
-    if (_configuration.support_legacy_nodes && isLegacyNodeMac(mac)) {
-      return __builtin_bswap64(mac);
-    }
-    return mac;
-  }
-
-  bool isLegacyNode(uint64_t canonical_address) const {
-    if (!_configuration.support_legacy_nodes) {
-      return false;
-    }
-    return _legacy_node_addresses.count(canonical_address) > 0;
-  }
-
 private:
   Ieee802154 _ieee802154;
   bool _initialized = false;
@@ -198,6 +176,4 @@ private:
   std::map<uint64_t, std::optional<uint64_t>> _pending_timestamp;
   // Set of MAC of nodes that should forget the host.
   std::set<uint64_t> _pending_forget_host;
-  // Set of MAC of nodes that use legacy pre-1.0.0 wire format.
-  std::set<uint64_t> _legacy_node_addresses;
 };
