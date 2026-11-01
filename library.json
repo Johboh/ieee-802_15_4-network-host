@@ -7,7 +7,7 @@
   {
     "name": "Johan Böhlin"
   },
-  "version": "1.0.2",
+  "version": "1.0.3",
   "license": "GPL-3.0-or-later",
   "repository":
   {
@@ -26,5 +26,21 @@
       "files": ["main.cpp"]
     }
   ],
-  "dependencies": []
+  "dependencies": [
+    {
+      "owner": "johboh",
+      "name": "ieee-802_15_4",
+      "version": "^1.0.3"
+    },
+    {
+      "owner": "johboh",
+      "name": "GCMEncryption",
+      "version": "^0.5.3"
+    },
+    {
+      "owner": "johboh",
+      "name": "ieee-802_15_4-network-shared",
+      "version": "^0.6.7"
+    }
+  ]
 }
