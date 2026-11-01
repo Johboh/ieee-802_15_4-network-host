@@ -159,6 +159,13 @@ private:
     return mac;
   }
 
+  bool isLegacyNode(uint64_t canonical_address) const {
+    if (!_configuration.support_legacy_nodes) {
+      return false;
+    }
+    return _legacy_node_addresses.count(canonical_address) > 0;
+  }
+
 private:
   Ieee802154 _ieee802154;
   bool _initialized = false;
@@ -181,4 +188,6 @@ private:
   std::map<uint64_t, std::optional<uint64_t>> _pending_timestamp;
   // Set of MAC of nodes that should forget the host.
   std::set<uint64_t> _pending_forget_host;
+  // Set of MAC of nodes that use legacy pre-1.0.0 wire format.
+  std::set<uint64_t> _legacy_node_addresses;
 };
