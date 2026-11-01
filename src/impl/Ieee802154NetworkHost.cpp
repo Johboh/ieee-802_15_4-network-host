@@ -17,8 +17,7 @@ Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNode
                   std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
-      _on_node_message(on_node_message),
-      _on_node_data_request(on_node_data_request) {}
+      _on_node_message(on_node_message), _on_node_data_request(on_node_data_request) {}
 
 Ieee802154NetworkHost::~Ieee802154NetworkHost() { teardown(); }
 
