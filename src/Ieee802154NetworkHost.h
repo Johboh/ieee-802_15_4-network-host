@@ -34,6 +34,11 @@ public:
   struct NodeDataRequest {
     Ieee802154NetworkHost &host;
     uint64_t source_address = 0;
+    bool has_pending_data = false;
+    bool has_firmware_update = false;
+    bool has_forget_host = false;
+    bool has_payload = false;
+    bool has_timestamp = false;
   };
 
   typedef std::function<void(Ieee802154NetworkHost::NodeDataRequest data_request)> OnNodeDataRequest;

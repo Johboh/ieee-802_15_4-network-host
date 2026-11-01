@@ -126,50 +126,68 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", request.source_address);
 
-  if (_on_node_data_request) {
-    _on_node_data_request({
-        .host = *this,
-        .source_address = request.source_address,
-    });
-  }
-
   std::optional<std::optional<uint64_t>> timestamp_to_send;
   std::optional<std::vector<uint8_t>> payload_to_send;
   bool forget_host_to_send = false;
   std::optional<FirmwareUpdate> firmware_to_send;
 
+  bool has_pending = false;
+  bool has_firmware = false;
+  bool has_forget_host = false;
+  bool has_payload = false;
+  bool has_timestamp = false;
+
   {
     std::scoped_lock lock(_pending_mutex);
-    if (_have_pending_data.find(request.source_address) == _have_pending_data.end()) {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- No pending bit set.");
-      return;
-    }
+    has_pending = (_have_pending_data.find(request.source_address) != _have_pending_data.end());
+    if (has_pending) {
+      auto timestamp_opt = _pending_timestamp.find(request.source_address);
+      if (timestamp_opt != _pending_timestamp.end()) {
+        has_timestamp = true;
+        timestamp_to_send = timestamp_opt->second;
+        _pending_timestamp.erase(timestamp_opt);
+      }
 
-    auto timestamp_opt = _pending_timestamp.find(request.source_address);
-    if (timestamp_opt != _pending_timestamp.end()) {
-      timestamp_to_send = timestamp_opt->second;
-      _pending_timestamp.erase(timestamp_opt);
-    }
+      auto payload = _pending_payload.find(request.source_address);
+      if (payload != _pending_payload.end()) {
+        has_payload = true;
+        payload_to_send = std::move(payload->second);
+        _pending_payload.erase(payload);
+      }
 
-    auto payload = _pending_payload.find(request.source_address);
-    if (payload != _pending_payload.end()) {
-      payload_to_send = std::move(payload->second);
-      _pending_payload.erase(payload);
-    }
+      auto forget_it = _pending_forget_host.find(request.source_address);
+      if (forget_it != _pending_forget_host.end()) {
+        has_forget_host = true;
+        forget_host_to_send = true;
+        _pending_forget_host.erase(forget_it);
+      }
 
-    auto forget_it = _pending_forget_host.find(request.source_address);
-    if (forget_it != _pending_forget_host.end()) {
-      forget_host_to_send = true;
-      _pending_forget_host.erase(forget_it);
-    }
+      auto firmware = _pending_firmware.find(request.source_address);
+      if (firmware != _pending_firmware.end()) {
+        has_firmware = true;
+        firmware_to_send = firmware->second;
+        _pending_firmware.erase(firmware);
+      }
 
-    auto firmware = _pending_firmware.find(request.source_address);
-    if (firmware != _pending_firmware.end()) {
-      firmware_to_send = firmware->second;
-      _pending_firmware.erase(firmware);
+      _have_pending_data.erase(request.source_address);
     }
+  }
 
-    _have_pending_data.erase(request.source_address);
+  if (_on_node_data_request) {
+    _on_node_data_request({
+        .host = *this,
+        .source_address = request.source_address,
+        .has_pending_data = has_pending,
+        .has_firmware_update = has_firmware,
+        .has_forget_host = has_forget_host,
+        .has_payload = has_payload,
+        .has_timestamp = has_timestamp,
+    });
+  }
+
+  if (!has_pending) {
+    ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- No pending bit set.");
+    return;
   }
 
   // Upon receiving data request, and we did indicate that we had data, we should wait a bit then start sending our
