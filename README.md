@@ -68,3 +68,6 @@ dependencies:
 - Can be used as an Arduino library when using the Arduino IDE or the ESP-IDF framework with the Arduino core.
 - Can be used as an ESP-IDF component when using the ESP-IDF framework.
 - For PlatformIO, it can only be used with the ESP-IDF framework, as the PlatformIO Arduino version (4.4.7) is too old (end of life).
+
+### License
+Licensed under the GNU General Public License v3.0 or later
