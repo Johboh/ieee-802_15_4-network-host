@@ -3,6 +3,7 @@
 
 #include "Ieee802154NetworkHost.h"
 #include <Ieee802154NetworkShared.h>
+#include <algorithm>
 #include <cinttypes>
 #include <cstring>
 #include <esp_log.h>
@@ -12,12 +13,10 @@
 
 Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
                                              OnNodeDataRequest on_node_data_request)
-    : _ieee802154({.channel = configuration.channel,
-                   .pan_id = configuration.pan_id,
-                   .data_frame_retries = 50,
-                   .tx_power = configuration.tx_power},
-                  std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
-                  std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
+    : _ieee802154(
+          {.channel = configuration.channel, .pan_id = configuration.pan_id, .tx_power = configuration.tx_power},
+          std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
+          std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
       _on_node_message(on_node_message), _on_node_data_request(on_node_data_request) {}
@@ -62,6 +61,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Message");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", message.source_address);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- destination MAC: 0x%llx", message.destination_address);
+  ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- RSSI: %d, LQI: %u", message.rssi, message.lqi);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- wire payload size: %d", message.payload_size);
   auto decrypted = _gcm_encryption.decrypt(message.payload);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- decrypted size: %d", decrypted.size());
@@ -90,6 +90,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
           .source_address = message.source_address,
           .firmware_version = messagev1->firmware_version,
           .rssi = message.rssi,
+          .lqi = message.lqi,
           .payload =
               std::vector<uint8_t>(decrypted.begin() + sizeof(Ieee802154NetworkShared::MessageV1), decrypted.end()),
       };
@@ -113,9 +114,12 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- Failed to encrypt discovery response");
       break;
     }
-    _ieee802154.setNumberOfDataFramesRetries(1);
-    _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size());
-    _ieee802154.setNumberOfDataFramesRetries(50);
+    auto result = _ieee802154.transmit(message.source_address, encrypted.data(), encrypted.size(),
+                                       _configuration.discovery_response_retries);
+    if (result == Ieee802154::TransmitResult::Failure) {
+      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send discovery response (last_error: %d)",
+               result.last_error);
+    }
     break;
   }
 
@@ -128,6 +132,7 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
 void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, "Got Data Request");
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- source MAC: 0x%llx", request.source_address);
+  ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- RSSI: %d, LQI: %u", request.rssi, request.lqi);
 
   std::optional<std::optional<uint64_t>> timestamp_to_send;
   std::optional<std::vector<uint8_t>> payload_to_send;
@@ -180,6 +185,8 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     _on_node_data_request({
         .host = *this,
         .source_address = request.source_address,
+        .rssi = request.rssi,
+        .lqi = request.lqi,
         .has_pending_data = has_pending,
         .has_firmware_update = has_firmware,
         .has_forget_host = has_forget_host,
@@ -216,11 +223,17 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt timestamp");
-    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-               Ieee802154::TransmitResult::Failure) {
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send timestamp to node");
     } else {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent timestamp to node");
+      auto result = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size(),
+                                         _configuration.data_frame_retries);
+      if (result == Ieee802154::TransmitResult::Failure) {
+        ESP_LOGW(Ieee802154NetworkHostLog::TAG,
+                 " -- failed to send timestamp to node (attempts: %u, errors: %u, last_error: %d)", result.attempts,
+                 result.errors, result.last_error);
+      } else {
+        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent timestamp to node (attempts: %u, ACK RSSI: %d, LQI: %u)",
+                 result.attempts, result.ack_rssi, result.ack_lqi);
+      }
     }
   }
 
@@ -243,11 +256,17 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
       auto encrypted = _gcm_encryption.encrypt(wire_message, wire_message_size);
       if (encrypted.empty()) {
         ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt payload");
-      } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-                 Ieee802154::TransmitResult::Failure) {
-        ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send payload to node");
       } else {
-        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent payload to node");
+        auto result = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size(),
+                                           _configuration.data_frame_retries);
+        if (result == Ieee802154::TransmitResult::Failure) {
+          ESP_LOGW(Ieee802154NetworkHostLog::TAG,
+                   " -- failed to send payload to node (attempts: %u, errors: %u, last_error: %d)", result.attempts,
+                   result.errors, result.last_error);
+        } else {
+          ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent payload to node (attempts: %u, ACK RSSI: %d, LQI: %u)",
+                   result.attempts, result.ack_rssi, result.ack_lqi);
+        }
       }
     }
   }
@@ -258,11 +277,17 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     auto encrypted = _gcm_encryption.encrypt(&response, sizeof(response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt forget host response");
-    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-               Ieee802154::TransmitResult::Failure) {
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send forget host to node");
     } else {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent forget host to node");
+      auto result = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size(),
+                                         _configuration.data_frame_retries);
+      if (result == Ieee802154::TransmitResult::Failure) {
+        ESP_LOGW(Ieee802154NetworkHostLog::TAG,
+                 " -- failed to send forget host to node (attempts: %u, errors: %u, last_error: %d)", result.attempts,
+                 result.errors, result.last_error);
+      } else {
+        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent forget host to node (attempts: %u, ACK RSSI: %d, LQI: %u)",
+                 result.attempts, result.ack_rssi, result.ack_lqi);
+      }
     }
 
     // Node will restart and reset its sequence number
@@ -285,11 +310,18 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     auto encrypted = _gcm_encryption.encrypt(&wifi_response, sizeof(wifi_response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware wifi credentials");
-    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-               Ieee802154::TransmitResult::Failure) {
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware wifi credentials to node");
     } else {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware wifi credentials to node");
+      auto result = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size(),
+                                         _configuration.data_frame_retries);
+      if (result == Ieee802154::TransmitResult::Failure) {
+        ESP_LOGW(Ieee802154NetworkHostLog::TAG,
+                 " -- failed to send firmware wifi credentials to node (attempts: %u, errors: %u, last_error: %d)",
+                 result.attempts, result.errors, result.last_error);
+      } else {
+        ESP_LOGI(Ieee802154NetworkHostLog::TAG,
+                 " -- sent firmware wifi credentials to node (attempts: %u, ACK RSSI: %d, LQI: %u)", result.attempts,
+                 result.ack_rssi, result.ack_lqi);
+      }
     }
 
     Ieee802154NetworkShared::PendingFirmwareChecksumResponseV1 checksum_response = {};
@@ -299,11 +331,18 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     encrypted = _gcm_encryption.encrypt(&checksum_response, sizeof(checksum_response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware checksum");
-    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-               Ieee802154::TransmitResult::Failure) {
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware checksum to node");
     } else {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware checksum to node");
+      auto result = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size(),
+                                         _configuration.data_frame_retries);
+      if (result == Ieee802154::TransmitResult::Failure) {
+        ESP_LOGW(Ieee802154NetworkHostLog::TAG,
+                 " -- failed to send firmware checksum to node (attempts: %u, errors: %u, last_error: %d)",
+                 result.attempts, result.errors, result.last_error);
+      } else {
+        ESP_LOGI(Ieee802154NetworkHostLog::TAG,
+                 " -- sent firmware checksum to node (attempts: %u, ACK RSSI: %d, LQI: %u)", result.attempts,
+                 result.ack_rssi, result.ack_lqi);
+      }
     }
 
     Ieee802154NetworkShared::PendingFirmwareUrlResponseV1 url_response = {};
@@ -313,11 +352,17 @@ void Ieee802154NetworkHost::onDataRequest(Ieee802154::DataRequest request) {
     encrypted = _gcm_encryption.encrypt(&url_response, sizeof(url_response));
     if (encrypted.empty()) {
       ESP_LOGE(Ieee802154NetworkHostLog::TAG, " -- failed to encrypt firmware URL");
-    } else if (_ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size()) ==
-               Ieee802154::TransmitResult::Failure) {
-      ESP_LOGW(Ieee802154NetworkHostLog::TAG, " -- failed to send firmware URL to node");
     } else {
-      ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node");
+      auto result = _ieee802154.transmit(request.source_address, encrypted.data(), encrypted.size(),
+                                         _configuration.data_frame_retries);
+      if (result == Ieee802154::TransmitResult::Failure) {
+        ESP_LOGW(Ieee802154NetworkHostLog::TAG,
+                 " -- failed to send firmware URL to node (attempts: %u, errors: %u, last_error: %d)", result.attempts,
+                 result.errors, result.last_error);
+      } else {
+        ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- sent firmware URL to node (attempts: %u, ACK RSSI: %d, LQI: %u)",
+                 result.attempts, result.ack_rssi, result.ack_lqi);
+      }
     }
 
     // After sending firmware metadata, assume node will restart and forget its sequence number.
@@ -385,5 +430,12 @@ void Ieee802154NetworkHost::setForgetHost(uint64_t target_address) {
   }
   _ieee802154.setPending(target_address);
 }
+
+void Ieee802154NetworkHost::setChannel(uint8_t channel) {
+  _configuration.channel = std::clamp(channel, (uint8_t)11, (uint8_t)26);
+  _ieee802154.setChannel(_configuration.channel);
+}
+
+uint8_t Ieee802154NetworkHost::channel() const { return _configuration.channel; }
 
 uint64_t Ieee802154NetworkHost::deviceMacAddress() const { return _ieee802154.deviceMacAddress(); }

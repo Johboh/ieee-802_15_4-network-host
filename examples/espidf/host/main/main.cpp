@@ -37,8 +37,11 @@ Ieee802154NetworkHost _ieee802154_host(
         return;
       }
       const ApplicationMessage *app = reinterpret_cast<const ApplicationMessage *>(node_message.payload.data());
-      ESP_LOGI(LOG_TAG, "Got ApplicationMessage from [0x%llx] with firmware version %" PRIu32 ", temperature: %f",
-               node_message.source_address, node_message.firmware_version, app->temperature);
+      ESP_LOGI(LOG_TAG,
+               "Got ApplicationMessage from [0x%llx] with firmware version %" PRIu32
+               ", temperature: %f, RSSI: %d, LQI: %u",
+               node_message.source_address, node_message.firmware_version, app->temperature, node_message.rssi,
+               node_message.lqi);
     });
 
 extern "C" {

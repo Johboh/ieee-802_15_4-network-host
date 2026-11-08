@@ -29,6 +29,7 @@ public:
     uint64_t source_address = 0;
     uint32_t firmware_version = 0;
     int8_t rssi = 0;
+    uint8_t lqi = 0;
     std::vector<uint8_t> payload;
   };
 
@@ -37,6 +38,8 @@ public:
   struct NodeDataRequest {
     Ieee802154NetworkHost &host;
     uint64_t source_address = 0;
+    int8_t rssi = 0;
+    uint8_t lqi = 0;
     bool has_pending_data = false;
     bool has_firmware_update = false;
     bool has_forget_host = false;
@@ -72,6 +75,16 @@ public:
      * Unknown allowed range.
      */
     int8_t tx_power = 20;
+    /**
+     * @brief How many times to try resending a data frame on failure (no ACK, busy CCA, etc.).
+     * Defaults to 50.
+     */
+    uint8_t data_frame_retries = 50;
+    /**
+     * @brief How many times to try resending a discovery response frame on failure.
+     * Defaults to 1 to avoid blocking when multiple nodes discover simultaneously.
+     */
+    uint8_t discovery_response_retries = 1;
   };
 
   /**
@@ -102,6 +115,18 @@ public:
    * destination address for a sender).
    */
   uint64_t deviceMacAddress() const;
+
+  /**
+   * @brief Change the 802.15.4 channel and apply it immediately to the radio hardware.
+   *
+   * @param channel channel number between 11 and 26.
+   */
+  void setChannel(uint8_t channel);
+
+  /**
+   * @brief Get the currently configured channel.
+   */
+  uint8_t channel() const;
 
   /**
    * Set timestamp for a specific node.

@@ -31,10 +31,12 @@ Ieee802154NetworkHost _ieee802154_host(
         return;
       }
       const ApplicationMessage *app = reinterpret_cast<const ApplicationMessage *>(node_message.payload.data());
-      char print_buffer[128];
+      char print_buffer[160];
       snprintf(print_buffer, sizeof(print_buffer),
-               "Got ApplicationMessage from [0x%llx] with firmware version %" PRIu32 ", temperature: %f",
-               node_message.source_address, node_message.firmware_version, app->temperature);
+               "Got ApplicationMessage from [0x%llx] with firmware version %" PRIu32
+               ", temperature: %f, RSSI: %d, LQI: %u",
+               node_message.source_address, node_message.firmware_version, app->temperature, node_message.rssi,
+               node_message.lqi);
       Serial.println(print_buffer);
     });
 
