@@ -2,6 +2,8 @@ name: Push ieee-802_15_4-network-host to Espressif Component Service
 on:
   release:
     types: [created]
+  workflow_dispatch:
+
 jobs:
   build_examples_for_verification:
     uses: ./.github/workflows/espidf.yaml
