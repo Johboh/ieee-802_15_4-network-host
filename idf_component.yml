@@ -1,9 +1,9 @@
-version: "1.0.6"
+version: "1.0.7"
 description: IEEE 802.15.4 Network Host.
 url: https://github.com/Johboh/ieee-802_15_4-network-host
 license: "GPL-3.0-or-later"
 dependencies:
   idf: ">=5.1.0"
-  johboh/ieee-802_15_4: ">=1.0.6"
+  johboh/ieee-802_15_4: ">=1.0.7"
   johboh/gcmencryption: ">=0.5.3"
   johboh/ieee-802_15_4-network-shared: ">=0.6.7"

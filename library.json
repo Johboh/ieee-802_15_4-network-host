@@ -7,7 +7,7 @@
   {
     "name": "Johan Böhlin"
   },
-  "version": "1.0.6",
+  "version": "1.0.7",
   "license": "GPL-3.0-or-later",
   "repository":
   {
@@ -30,7 +30,7 @@
     {
       "owner": "johboh",
       "name": "ieee-802_15_4",
-      "version": "^1.0.6"
+      "version": "^1.0.7"
     },
     {
       "owner": "johboh",
