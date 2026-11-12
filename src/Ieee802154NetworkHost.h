@@ -49,6 +49,9 @@ public:
 
   typedef std::function<void(Ieee802154NetworkHost::NodeDataRequest data_request)> OnNodeDataRequest;
 
+  using PromiscuousFrame = Ieee802154::PromiscuousFrame;
+  using OnPromiscuousFrame = Ieee802154::OnPromiscuousFrame;
+
   struct Configuration {
     /**
      * Encryption key used for the GCM packet encryption. Must be exact 16 bytes long. \0 does not count.
@@ -85,6 +88,10 @@ public:
      * Defaults to 1 to avoid blocking when multiple nodes discover simultaneously.
      */
     uint8_t discovery_response_retries = 1;
+    /**
+     * @brief Enable promiscuous reception (receive all valid 802.15.4 frames, no auto-ACK).
+     */
+    bool promiscuous_mode = false;
   };
 
   /**
@@ -93,10 +100,11 @@ public:
    * @param configuration see Configuration class.
    * @param on_node_message callback on new message from a node.
    * @param on_node_data_request optional callback when a data request is received from a node.
+   * @param on_promiscuous_frame optional callback for all valid frames on the channel (enables promiscuous mode).
    *
    */
   Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
-                        OnNodeDataRequest on_node_data_request = {});
+                        OnNodeDataRequest on_node_data_request = {}, OnPromiscuousFrame on_promiscuous_frame = {});
   ~Ieee802154NetworkHost();
 
   Ieee802154NetworkHost(const Ieee802154NetworkHost &) = delete;
@@ -127,6 +135,29 @@ public:
    * @brief Get the currently configured channel.
    */
   uint8_t channel() const;
+
+  /**
+   * @brief Enable or disable promiscuous mode. When enabled, all valid 802.15.4 frames are received,
+   * regardless of destination PAN or MAC address, and hardware auto-ACK is disabled.
+   */
+  void setPromiscuous(bool enable);
+  bool isPromiscuous() const;
+
+  /**
+   * @brief Register callback for frames received in promiscuous mode. Automatically enables promiscuous mode.
+   * Call with empty callback to clear.
+   */
+  void receivePromiscuous(OnPromiscuousFrame on_promiscuous_frame);
+
+  /**
+   * @brief Perform an energy detection (ED) measurement on the current channel.
+   *
+   * @param power Output parameter receiving the measured RF power in dBm.
+   * @param duration_symbols Duration in symbol periods (1 symbol = 16 us). Standard is 8 symbols (128 us).
+   * @param timeout_ms Max time in ms to wait for the measurement. Default is 50 ms.
+   * @return true if measurement succeeded, false on error or timeout.
+   */
+  bool energyDetect(int8_t &power, uint32_t duration_symbols = 8, uint32_t timeout_ms = 50);
 
   /**
    * Set timestamp for a specific node.

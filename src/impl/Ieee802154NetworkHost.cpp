@@ -12,14 +12,21 @@
 #include <freertos/task.h>
 
 Ieee802154NetworkHost::Ieee802154NetworkHost(Configuration configuration, OnNodeMessage on_node_message,
-                                             OnNodeDataRequest on_node_data_request)
-    : _ieee802154(
-          {.channel = configuration.channel, .pan_id = configuration.pan_id, .tx_power = configuration.tx_power},
-          std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
-          std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
+                                             OnNodeDataRequest on_node_data_request,
+                                             OnPromiscuousFrame on_promiscuous_frame)
+    : _ieee802154({.channel = configuration.channel,
+                   .pan_id = configuration.pan_id,
+                   .tx_power = configuration.tx_power,
+                   .promiscuous_mode = configuration.promiscuous_mode},
+                  std::bind(&Ieee802154NetworkHost::onMessage, this, std::placeholders::_1),
+                  std::bind(&Ieee802154NetworkHost::onDataRequest, this, std::placeholders::_1)),
       _configuration(configuration),
       _gcm_encryption(configuration.gcm_encryption_key, configuration.gcm_encryption_secret, false),
-      _on_node_message(on_node_message), _on_node_data_request(on_node_data_request) {}
+      _on_node_message(on_node_message), _on_node_data_request(on_node_data_request) {
+  if (on_promiscuous_frame != nullptr) {
+    _ieee802154.receivePromiscuous(on_promiscuous_frame);
+  }
+}
 
 Ieee802154NetworkHost::~Ieee802154NetworkHost() { teardown(); }
 
@@ -437,5 +444,23 @@ void Ieee802154NetworkHost::setChannel(uint8_t channel) {
 }
 
 uint8_t Ieee802154NetworkHost::channel() const { return _configuration.channel; }
+
+void Ieee802154NetworkHost::setPromiscuous(bool enable) {
+  _configuration.promiscuous_mode = enable;
+  _ieee802154.setPromiscuous(enable);
+}
+
+bool Ieee802154NetworkHost::isPromiscuous() const { return _ieee802154.isPromiscuous(); }
+
+void Ieee802154NetworkHost::receivePromiscuous(OnPromiscuousFrame on_promiscuous_frame) {
+  if (on_promiscuous_frame != nullptr) {
+    _configuration.promiscuous_mode = true;
+  }
+  _ieee802154.receivePromiscuous(on_promiscuous_frame);
+}
+
+bool Ieee802154NetworkHost::energyDetect(int8_t &power, uint32_t duration_symbols, uint32_t timeout_ms) {
+  return _ieee802154.energyDetect(power, duration_symbols, timeout_ms);
+}
 
 uint64_t Ieee802154NetworkHost::deviceMacAddress() const { return _ieee802154.deviceMacAddress(); }
