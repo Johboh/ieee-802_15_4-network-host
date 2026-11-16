@@ -5,5 +5,5 @@ license: "GPL-3.0-or-later"
 dependencies:
   idf: ">=5.1.0"
   johboh/ieee-802_15_4: ">=1.0.7"
-  johboh/gcmencryption: ">=0.5.3"
+  johboh/gcmencryption: ">=1.0.0"
   johboh/ieee-802_15_4-network-shared: ">=0.6.7"

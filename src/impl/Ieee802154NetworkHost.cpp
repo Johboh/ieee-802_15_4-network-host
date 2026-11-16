@@ -70,7 +70,8 @@ void Ieee802154NetworkHost::onMessage(Ieee802154::Message message) {
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- destination MAC: 0x%llx", message.destination_address);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- RSSI: %d, LQI: %u", message.rssi, message.lqi);
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- wire payload size: %d", message.payload_size);
-  auto decrypted = _gcm_encryption.decrypt(message.payload);
+  auto decrypted = _gcm_encryption.decrypt(
+      message.payload, std::min(static_cast<size_t>(message.payload_size), sizeof(message.payload)));
   ESP_LOGI(Ieee802154NetworkHostLog::TAG, " -- decrypted size: %d", decrypted.size());
 
   if (decrypted.empty()) {
